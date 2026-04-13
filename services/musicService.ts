@@ -8,9 +8,11 @@
 
 import { getSupabaseClient } from '@/template';
 import { MusicTrack, MUSIC_AUTO_ID, MUSIC_NONE_ID, MusicSelection, PRESET_MUSIC_PRIORITY } from '../constants/music';
-import { CLOUDINARY_CLOUD_NAME } from '../constants/config';
+
 
 const supabase = getSupabaseClient();
+
+const CLOUDINARY_CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'spinshot360';
 
 // ─── Build preview URL from Cloudinary public_id ──────────────────────────
 export function buildCloudinaryPreviewUrl(cloudinaryPublicId: string): string {
@@ -26,7 +28,7 @@ function rowToTrack(row: any): MusicTrack {
     category: row.category,
     emoji: row.emoji ?? '🎵',
     cloudinaryPublicId: row.cloudinary_public_id,
-    previewUrl: buildCloudinaryPreviewUrl(row.cloudinary_public_id),
+    previewUrl: row.preview_url,
     duration: row.duration ?? 120,
     bpm: row.bpm ?? 120,
     isPremium: row.is_premium ?? false,

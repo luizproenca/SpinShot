@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Animated,
-  Platform, Modal, Switch, Dimensions, ScrollView, ActivityIndicator,
+  Platform, Modal, Switch, Dimensions, ScrollView, ActivityIndicator, Alert,
 } from 'react-native';
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -188,13 +188,13 @@ function EffectOptionCard({
 }
 
 function MusicCard({
-  track, isSelected, isPro, onPress, onUpgrade, lockedLabel,
+  track, isSelected, isPro, onPress, onUpgrade,
   playingId, onPlayPreview,
 }: {
   track: MusicTrack; isSelected: boolean; isPro: boolean;
-  onPress: () => void; onUpgrade: () => void; lockedLabel: string;
+  onPress: () => void; onUpgrade: () => void;
   playingId: string | null;
-  onPlayPreview: (id: string, url: string) => void;
+  onPlayPreview: (id: string, url?: string) => void;
 }) {
   const isLocked = track.isPremium && !isPro;
   const isPlaying = playingId === track.id;
@@ -208,8 +208,10 @@ function MusicCard({
 
   const handlePreviewPress = (e: any) => {
     e.stopPropagation?.();
-    if (isLocked) { onUpgrade(); return; }
-    if (!track.previewUrl) return;
+    if (isLocked) {
+      onUpgrade();
+      return;
+    }
     onPlayPreview(track.id, track.previewUrl);
   };
 
@@ -244,7 +246,7 @@ function MusicCard({
           </View>
         </View>
 
-        {!isLocked && track.previewUrl ? (
+        {!isLocked ? (
           <Pressable
             onPress={handlePreviewPress}
             hitSlop={8}
@@ -312,11 +314,20 @@ function ConfigSheet({
   const activeEffect = UI_EFFECTS.find(e => e.id === selectedEffect) ?? UI_EFFECTS[0];
 
   const stopPreview = useCallback(async () => {
-    if (previewTimerRef.current) { clearTimeout(previewTimerRef.current); previewTimerRef.current = null; }
+    if (previewTimerRef.current) {
+      clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+
     setPlayingId(null);
     setLoadingPreviewId(null);
+
     if (soundRef.current) {
-      try { await soundRef.current.stopAsync(); await soundRef.current.unloadAsync(); } catch {}
+      try {
+        soundRef.current.setOnPlaybackStatusUpdate(null);
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+      } catch {}
       soundRef.current = null;
     }
   }, []);
@@ -341,25 +352,88 @@ function ConfigSheet({
 
   const allTracks = [...freeTracks, ...premiumTracks];
 
-  const handlePlayPreview = useCallback(async (trackId: string, url: string) => {
-    if (playingId === trackId) { await stopPreview(); return; }
+  const handlePlayPreview = useCallback(async (trackId: string, url?: string) => {
+    console.log(playingId,url)
+    if (playingId === trackId) {
+      await stopPreview();
+      return;
+    }
+
     await stopPreview();
+
+    if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+      console.log('Preview URL inválida ou ausente:', { trackId, url });
+      Alert.alert('Preview indisponível', 'Essa música não possui uma URL de preview válida.');
+      return;
+    }
+
     try {
       setLoadingPreviewId(trackId);
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const { sound } = await Audio.Sound.createAsync(
+      console.log('Tentando tocar preview:', { trackId, url });
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        shouldDuckAndroid: true,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const { sound, status } = await Audio.Sound.createAsync(
         { uri: url },
-        { shouldPlay: true, volume: 1.0 },
+        {
+          shouldPlay: false,
+          volume: 1.0,
+          progressUpdateIntervalMillis: 250,
+          isLooping: false,
+        },
+        (playbackStatus) => {
+          if (!playbackStatus.isLoaded) return;
+
+          console.log('Playback status:', {
+            positionMillis: playbackStatus.positionMillis,
+            durationMillis: playbackStatus.durationMillis,
+            isPlaying: playbackStatus.isPlaying,
+            didJustFinish: playbackStatus.didJustFinish,
+          });
+
+          if (playbackStatus.didJustFinish) {
+            void stopPreview();
+          }
+        },
+        true
       );
+
+      console.log('Audio criado com status:', status);
+
       soundRef.current = sound;
       setPlayingId(trackId);
       setLoadingPreviewId(null);
+
+      const playStatus = await sound.playAsync();
+      console.log('Resultado do playAsync:', playStatus);
+
       previewTimerRef.current = setTimeout(async () => {
         await stopPreview();
       }, PREVIEW_DURATION_MS);
-    } catch {
+    } catch (error: any) {
+      console.error('Erro ao tocar preview da música:', error);
+      Alert.alert(
+        'Erro ao tocar preview',
+        String(error?.message ?? 'Falha ao reproduzir a música de preview.')
+      );
+
       setLoadingPreviewId(null);
       setPlayingId(null);
+
+      if (soundRef.current) {
+        try {
+          await soundRef.current.unloadAsync();
+        } catch {}
+        soundRef.current = null;
+      }
     }
   }, [playingId, stopPreview]);
 
@@ -389,7 +463,7 @@ function ConfigSheet({
   const {
     sheetTitle, durationLabel, musicLabel,
     autoMusicLabel, autoMusicSub, noMusicLabel, noMusicSub,
-    lockedLabel, unlockBanner, upgradeLabel,
+    unlockBanner, upgradeLabel,
   } = labels;
 
   return (
@@ -531,7 +605,11 @@ function ConfigSheet({
           <ScrollView
             style={styles.musicScroll}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ gap: Spacing.xs, paddingBottom: Spacing.lg }}
+            contentContainerStyle={{
+              gap: Spacing.sm,
+              paddingTop: Spacing.sm,
+              paddingBottom: Spacing.lg,
+            }}
           >
             <Pressable
               style={[
@@ -603,7 +681,6 @@ function ConfigSheet({
                 isPro={isPro}
                 onPress={() => handleMusicPress(track.id)}
                 onUpgrade={onUpgrade}
-                lockedLabel={lockedLabel}
                 playingId={loadingPreviewId ?? playingId}
                 onPlayPreview={handlePlayPreview}
               />
@@ -617,7 +694,6 @@ function ConfigSheet({
                 isPro={isPro}
                 onPress={() => handleMusicPress(track.id)}
                 onUpgrade={onUpgrade}
-                lockedLabel={lockedLabel}
                 playingId={loadingPreviewId ?? playingId}
                 onPlayPreview={handlePlayPreview}
               />
@@ -1193,7 +1269,6 @@ export default function HomeScreen() {
           autoMusicSub: t.music.autoSub,
           noMusicLabel: t.music.none,
           noMusicSub: t.music.noneSub,
-          lockedLabel: t.music.locked,
           unlockBanner: t.music.unlockBanner,
           upgradeLabel: t.music.upgrade,
           libraryLabel: t.music.library,
@@ -1543,7 +1618,8 @@ const styles = StyleSheet.create({
   sheetFixed: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
-    gap: Spacing.md,
+    gap: Spacing.lg,
+    paddingBottom: Spacing.sm,
   },
   sheetHandle: {
     alignSelf: 'center',
@@ -1600,7 +1676,10 @@ const styles = StyleSheet.create({
   },
   tabTextActive: { color: '#fff' },
 
-  sheetSection: { gap: Spacing.sm, marginTop: 2 },
+  sheetSection: {
+    gap: Spacing.sm,
+    marginTop: 6,
+  },
   sheetSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1612,6 +1691,7 @@ const styles = StyleSheet.create({
     color: Colors.TextMuted,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
+    marginBottom: 2,
   },
 
   segmentedGroup: {
@@ -1768,7 +1848,7 @@ const styles = StyleSheet.create({
 
   musicScroll: { flex: 1, minHeight: 0, paddingHorizontal: Spacing.lg },
 
-  musicSpecialCard: {
+ musicSpecialCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
@@ -1777,7 +1857,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.Border,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
+    paddingVertical: 14,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -1954,6 +2034,7 @@ const styles = StyleSheet.create({
   subscriptionBannerGrad: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1964,6 +2045,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: FontWeight.semibold,
     letterSpacing: 0.2,
+    textAlign: 'center',
   },
   subscriptionBannerCta: {
     backgroundColor: '#F59E0B',
