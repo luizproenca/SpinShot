@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 import { usePlan } from '../hooks/usePlan';
 import { useLanguage } from '../hooks/useLanguage';
 import { Colors, FontSize, FontWeight, Spacing } from '../constants/theme';
+import { StatusBar } from 'expo-status-bar';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -309,6 +310,7 @@ export default function SplashScreen() {
       end={{ x: 1, y: 1 }}
       style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
     >
+      <StatusBar style="light" />
       {/* ── Particles layer ── */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         {particles.map(p => <Particle key={p.id} cfg={p} />)}

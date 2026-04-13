@@ -511,7 +511,7 @@ function ConfigSheet({
                   color={activeTab === tab ? '#fff' : Colors.TextMuted}
                 />
                 <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab === 'effects' ? 'Efeitos' : musicLabel}
+                  {tab === 'effects' ? 'EFEITOS' : musicLabel}
                 </Text>
               </Pressable>
             ))}

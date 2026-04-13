@@ -3,9 +3,8 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Video } from './types';
 import { MOCK_QR_BASE_URL } from '../constants/config';
 import { eventService } from './eventService';
-import { MusicSelection, MUSIC_NONE_ID } from '../constants/music';
+import { MusicSelection } from '../constants/music';
 import { resolveMusicForProcessing } from './musicService';
-import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { calculateDurationPlan, VideoPreset } from './videoEffectsService';
 
@@ -16,7 +15,6 @@ async function getStoredIsPro(): Promise<boolean> {
       const sub = JSON.parse(stored);
       return sub.isPro === true;
     }
-    // Fallback to legacy key
     const plan = await AsyncStorage.getItem('@spinshot:plan');
     return plan === 'pro';
   } catch {
@@ -25,6 +23,7 @@ async function getStoredIsPro(): Promise<boolean> {
 }
 
 const supabase = getSupabaseClient();
+const STORAGE_BUCKET = 'spinshot-videos';
 
 function toVideo(row: any): Video {
   return {
@@ -43,33 +42,65 @@ function toVideo(row: any): Video {
   };
 }
 
+function getVideoContentType(localUri: string): string {
+  const fileExt = localUri.split('.').pop()?.toLowerCase() || 'mp4';
+
+  switch (fileExt) {
+    case 'mov':
+      return 'video/quicktime';
+    case 'webm':
+      return 'video/webm';
+    case 'm4v':
+      return 'video/x-m4v';
+    case 'mp4':
+    default:
+      return 'video/mp4';
+  }
+}
+
 async function uploadVideoToStorage(userId: string, localUri: string): Promise<string> {
-  const base64 = await FileSystem.readAsStringAsync(localUri, {
-    encoding: FileSystem.EncodingType.Base64,
+  const fileExt = localUri.split('.').pop()?.toLowerCase() || 'mp4';
+  const fileName = `${userId}/${Date.now()}.${fileExt}`;
+  const contentType = getVideoContentType(localUri);
+
+  console.log('[uploadVideoToStorage] starting', {
+    bucket: STORAGE_BUCKET,
+    fileName,
+    contentType,
+    localUri,
   });
 
-  const binaryStr = atob(base64);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
+  const fileResponse = await fetch(localUri);
+  if (!fileResponse.ok) {
+    throw new Error(`Falha ao ler arquivo local: ${fileResponse.status}`);
   }
 
-  const fileName = `${userId}/${Date.now()}_raw.mp4`;
+  const arrayBuffer = await fileResponse.arrayBuffer();
+
+  console.log('[uploadVideoToStorage] file loaded', {
+    bytes: arrayBuffer.byteLength,
+  });
 
   const { error } = await supabase.storage
-    .from('spinshot-videos')
-    .upload(fileName, bytes.buffer as ArrayBuffer, {
-      contentType: 'video/mp4',
+    .from(STORAGE_BUCKET)
+    .upload(fileName, arrayBuffer, {
+      contentType,
       upsert: false,
+      cacheControl: '3600',
     });
 
-  if (error) throw new Error('Upload falhou: ' + error.message);
+  if (error) {
+    console.error('[uploadVideoToStorage] upload failed', error);
+    throw new Error(`Upload falhou: ${error.message || 'erro desconhecido no Supabase Storage'}`);
+  }
 
-  const { data: publicData } = supabase.storage
-    .from('spinshot-videos')
-    .getPublicUrl(fileName);
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
 
-  return publicData.publicUrl;
+  console.log('[uploadVideoToStorage] upload complete', {
+    publicUrl: data.publicUrl,
+  });
+
+  return data.publicUrl;
 }
 
 async function processVideoWithEffects(
@@ -162,15 +193,16 @@ export const videoService = {
           isPro,
         );
 
-      const processed = await processVideoWithEffects(
-        storageUrl,
-        data.effect || 'boomerang',
-        userId,
-        musicCloudinaryId,
-        data.frameCloudinaryId || null,
-        isPro,
-        data.duration || 10,
-      );
+        const processed = await processVideoWithEffects(
+          storageUrl,
+          data.effect || 'boomerang',
+          userId,
+          musicCloudinaryId,
+          data.frameCloudinaryId || null,
+          isPro,
+          data.duration || 10,
+        );
+
         finalVideoUrl = processed.processedUrl;
         thumbnailUrl = processed.thumbnailUrl;
       } catch (e) {
@@ -203,7 +235,9 @@ export const videoService = {
     if (error) throw new Error(error.message);
 
     if (data.eventId) {
-      try { await eventService.incrementVideoCount(data.eventId); } catch {}
+      try {
+        await eventService.incrementVideoCount(data.eventId);
+      } catch {}
     }
 
     return toVideo(row);
@@ -219,9 +253,9 @@ export const videoService = {
     if (video?.video_url) {
       try {
         const url = new URL(video.video_url);
-        const pathParts = url.pathname.split('/spinshot-videos/');
+        const pathParts = url.pathname.split(`/${STORAGE_BUCKET}/`);
         if (pathParts[1]) {
-          await supabase.storage.from('spinshot-videos').remove([pathParts[1]]);
+          await supabase.storage.from(STORAGE_BUCKET).remove([pathParts[1]]);
         }
       } catch {}
     }
