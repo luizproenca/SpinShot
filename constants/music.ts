@@ -46,9 +46,8 @@ export const CATEGORY_META: Record<MusicCategory, {
 // ─── Auto-selection priority per effect ──────────────────────────────────
 // Used by getAutoTrack() in musicService to pick the best free/pro track
 export const PRESET_MUSIC_PRIORITY: Record<string, string[]> = {
-  suave:       ['wedding_001', 'chill_001', 'chill_002', 'wedding_002'],
-  equilibrado: ['party_001',   'corporate_001', 'party_002', 'corporate_002'],
-  impactante:  ['party_001',   'party_002', 'party_003', 'party_004'],
+  hype: ['party_001',   'corporate_001', 'party_002', 'corporate_002'],
+  cinematic:  ['party_001',   'party_002', 'party_003', 'party_004'],
   boomerang:   ['party_001',   'party_002', 'chill_001', 'corporate_001'],
   auto:        ['party_001',   'chill_001', 'wedding_001', 'party_003'],
 };

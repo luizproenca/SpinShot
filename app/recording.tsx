@@ -8,6 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import * as Device from 'expo-device';
 import {
   CameraView,
   CameraType,
@@ -74,6 +75,7 @@ export default function RecordingScreen() {
   const { t } = useLanguage();
   const cameraRef = useRef<CameraView>(null);
   const recordingStartedRef = useRef(false);
+  const isIosSimulator = Platform.OS === 'ios' && !Device.isDevice;
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
@@ -97,7 +99,32 @@ export default function RecordingScreen() {
     finalDuration,
   );
   const remaining = Math.max(finalDuration - displayedElapsed, 0);
-  const recordingHint = `Gravando ${totalDuration}s → Gerando ${finalDuration}s`;
+  const recordingHint = isIosSimulator
+    ? `Simulador iOS: gravação simulada (${finalDuration}s)`
+    : `Gravando ${totalDuration}s → Gerando ${finalDuration}s`;
+
+  const safeStopRecording = useCallback(async () => {
+    if (isIosSimulator) {
+      return;
+    }
+
+    try {
+      await cameraRef.current?.stopRecording();
+    } catch (error: any) {
+      const message = String(error?.message ?? error);
+
+      const isSimulatorUnsupported =
+        Platform.OS === 'ios' &&
+        message.toLowerCase().includes('not supported on the simulator');
+
+      if (isSimulatorUnsupported) {
+        console.log('stopRecording ignorado no simulador iOS');
+        return;
+      }
+
+      console.error('Erro ao parar gravação:', error);
+    }
+  }, [isIosSimulator]);
 
   useEffect(() => {
     (async () => {
@@ -132,7 +159,17 @@ export default function RecordingScreen() {
         setPhase('countdown');
       }, 300);
     })();
-  }, [cameraOpacity, cameraPermission?.granted, micPermission?.granted, requestCameraPermission, requestMicPermission, router, t.common.ok, t.recording.permissionMsg, t.recording.permissionTitle]);
+  }, [
+    cameraOpacity,
+    cameraPermission?.granted,
+    micPermission?.granted,
+    requestCameraPermission,
+    requestMicPermission,
+    router,
+    t.common.ok,
+    t.recording.permissionMsg,
+    t.recording.permissionTitle,
+  ]);
 
   const haptic = useCallback(async (style?: Haptics.ImpactFeedbackStyle) => {
     if (Platform.OS !== 'web') {
@@ -194,8 +231,15 @@ export default function RecordingScreen() {
     progressAnim.setValue(0);
 
     const startRecording = async () => {
-      if (!cameraRef.current || recordingStartedRef.current) return;
+      if (recordingStartedRef.current) return;
       recordingStartedRef.current = true;
+
+      if (isIosSimulator) {
+        console.log('Simulador iOS detectado: gravação será simulada.');
+        return;
+      }
+
+      if (!cameraRef.current) return;
 
       try {
         const result = await cameraRef.current.recordAsync({
@@ -205,7 +249,9 @@ export default function RecordingScreen() {
         if (result?.uri) {
           setLocalVideoUri(result.uri);
         }
-      } catch {}
+      } catch (error) {
+        console.error('Erro ao iniciar gravação:', error);
+      }
     };
 
     startRecording();
@@ -288,9 +334,13 @@ export default function RecordingScreen() {
 
         if (next >= totalDuration) {
           clearInterval(interval);
-          try {
-            cameraRef.current?.stopRecording();
-          } catch {}
+
+          if (isIosSimulator) {
+            setLocalVideoUri('simulator://mock-video');
+          } else {
+            void safeStopRecording();
+          }
+
           return totalDuration;
         }
 
@@ -300,12 +350,14 @@ export default function RecordingScreen() {
 
     return () => {
       clearInterval(interval);
-      try {
-        cameraRef.current?.stopRecording();
-      } catch {}
+
+      if (!isIosSimulator) {
+        void safeStopRecording();
+      }
     };
   }, [
     haptic,
+    isIosSimulator,
     phase,
     progressAnim,
     progressGlowAnim,
@@ -316,6 +368,7 @@ export default function RecordingScreen() {
     ring2Scale,
     ring3Opacity,
     ring3Scale,
+    safeStopRecording,
     totalDuration,
   ]);
 
@@ -388,10 +441,8 @@ export default function RecordingScreen() {
   };
 
   const handleCancel = () => {
-    if (phase === 'recording') {
-      try {
-        cameraRef.current?.stopRecording();
-      } catch {}
+    if (phase === 'recording' && !isIosSimulator) {
+      void safeStopRecording();
     }
     router.back();
   };

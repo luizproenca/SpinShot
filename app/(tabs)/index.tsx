@@ -777,7 +777,6 @@ export default function HomeScreen() {
       try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
     }
 
-    // Free plan: cap duration at 10s
     const effectiveDuration = (!isPro && duration > 10) ? 10 : duration;
 
     router.push({
@@ -803,7 +802,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Plan enforcement handlers for ConfigSheet
   const handleEffectSelect = (effectId: VideoPreset) => {
     if (!isPro && (effectId === 'cinematic' || effectId === 'hype')) {
       showPaywall(effectId === 'cinematic' ? 'cinematic' : 'hype');
@@ -867,17 +865,24 @@ export default function HomeScreen() {
         <Pressable
           style={[
             styles.subscriptionBanner,
+            { top: insets.top + 6 },
             subscriptionBanner.type === 'trial'
               ? styles.subscriptionBannerTrial
               : styles.subscriptionBannerPro,
           ]}
-          onPress={() => subscriptionBanner.type === 'trial' ? showPaywall('generic') : undefined}
+          onPress={() => {
+            if (subscriptionBanner.type === 'trial') {
+              showPaywall('generic');
+            } else {
+              router.push('/subscription');
+            }
+          }}
         >
           <LinearGradient
             colors={
               subscriptionBanner.type === 'trial'
                 ? ['#F59E0B18', '#EF444418']
-                : ['#10B98118', '#059669' + '18']
+                : ['#10B98118', '#05966918']
             }
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={styles.subscriptionBannerGrad}
@@ -887,10 +892,13 @@ export default function HomeScreen() {
               size={13}
               color={subscriptionBanner.type === 'trial' ? '#F59E0B' : '#10B981'}
             />
-            <Text style={[
-              styles.subscriptionBannerText,
-              { color: subscriptionBanner.type === 'trial' ? '#F59E0B' : '#10B981' },
-            ]}>
+            <Text
+              style={[
+                styles.subscriptionBannerText,
+                { color: subscriptionBanner.type === 'trial' ? '#F59E0B' : '#10B981' },
+              ]}
+              numberOfLines={1}
+            >
               {subscriptionBanner.label}
             </Text>
             {subscriptionBanner.type === 'trial' && (
@@ -913,7 +921,10 @@ export default function HomeScreen() {
         style={[
           styles.screen,
           {
-            paddingTop: insets.top + (kioskMode ? 48 : Spacing.md) + (subscriptionBanner ? 36 : 0),
+            paddingTop:
+              insets.top +
+              (kioskMode ? 48 : Spacing.md) +
+              (subscriptionBanner ? 44 : 0),
             paddingBottom: insets.bottom + 80,
           },
         ]}
@@ -994,54 +1005,58 @@ export default function HomeScreen() {
         )}
 
         <View style={styles.centerArea}>
-          <Animated.View
-            style={[
-              styles.outerRing,
-              { transform: [{ scale: outerGlowScale }], opacity: outerGlowOpacity },
-            ]}
-          />
-          <Animated.View
-            style={[
-              styles.innerRing,
-              { transform: [{ scale: glowScale }], opacity: glowOpacity },
-            ]}
-          />
+          <View style={styles.recordStage}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.outerRing,
+                { transform: [{ scale: outerGlowScale }], opacity: outerGlowOpacity },
+              ]}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.innerRing,
+                { transform: [{ scale: glowScale }], opacity: glowOpacity },
+              ]}
+            />
 
-          {showNoEventTooltip && (
-            <Animated.View style={[styles.noEventTooltip, { opacity: tooltipOpacity }]}>
-              <MaterialIcons name="info-outline" size={14} color="#FEF3C7" />
-              <Text style={styles.noEventTooltipText}>
-                {language === 'en'
-                  ? 'Select or create an event first'
-                  : language === 'es'
-                  ? 'Selecciona o crea un evento primero'
-                  : 'Selecione ou crie um evento primeiro'}
-              </Text>
-            </Animated.View>
-          )}
+            {showNoEventTooltip && (
+              <Animated.View style={[styles.noEventTooltip, { opacity: tooltipOpacity }]}>
+                <MaterialIcons name="info-outline" size={14} color="#FEF3C7" />
+                <Text style={styles.noEventTooltipText}>
+                  {language === 'en'
+                    ? 'Select or create an event first'
+                    : language === 'es'
+                    ? 'Selecciona o crea un evento primero'
+                    : 'Selecione ou crie um evento primeiro'}
+                </Text>
+              </Animated.View>
+            )}
 
-          <Animated.View style={{ transform: [{ scale: btnScale }] }}>
-            <Pressable
-              onPressIn={handlePressIn}
-              onPressOut={handlePressOut}
-              onPress={handleStartRecording}
-            >
-              <LinearGradient
-                colors={hasActiveEvent
-                  ? ['#C084FC', '#8B5CF6', '#4F46E5']
-                  : ['#3D3A5C', '#2A2845', '#1E1B3A']}
-                start={{ x: 0.1, y: 0 }}
-                end={{ x: 0.9, y: 1 }}
-                style={[styles.recordBtn, !hasActiveEvent && styles.recordBtnDisabled]}
+            <Animated.View style={{ transform: [{ scale: btnScale }], zIndex: 2 }}>
+              <Pressable
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={handleStartRecording}
               >
-                <MaterialIcons
-                  name="videocam"
-                  size={56}
-                  color={hasActiveEvent ? '#fff' : 'rgba(255,255,255,0.3)'}
-                />
-              </LinearGradient>
-            </Pressable>
-          </Animated.View>
+                <LinearGradient
+                  colors={hasActiveEvent
+                    ? ['#C084FC', '#8B5CF6', '#4F46E5']
+                    : ['#3D3A5C', '#2A2845', '#1E1B3A']}
+                  start={{ x: 0.1, y: 0 }}
+                  end={{ x: 0.9, y: 1 }}
+                  style={[styles.recordBtn, !hasActiveEvent && styles.recordBtnDisabled]}
+                >
+                  <MaterialIcons
+                    name="videocam"
+                    size={50}
+                    color={hasActiveEvent ? '#fff' : 'rgba(255,255,255,0.3)'}
+                  />
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+          </View>
 
           <View style={styles.recordLabelBlock}>
             <Text style={[styles.recordLabel, !hasActiveEvent && { color: Colors.TextMuted }]}>
@@ -1064,29 +1079,29 @@ export default function HomeScreen() {
                 <MaterialIcons name="chevron-right" size={13} color={Colors.Warning} />
               </Pressable>
             ) : (
-            <View style={styles.recordMetaRow}>
-              <Text style={styles.recordMeta}>
-                {activeEffect.emoji} {activeEffect.label}
-              </Text>
-              <View style={styles.metaSep} />
-              <MaterialIcons name="timer" size={13} color={Colors.TextSubtle} />
-              <Text style={styles.recordMeta}>{duration}s</Text>
-              {musicSelection !== MUSIC_NONE_ID && (
-                <>
-                  <View style={styles.metaSep} />
-                  <MaterialIcons name="music-note" size={13} color={Colors.TextSubtle} />
-                </>
-              )}
-              {kioskMode && (
-                <>
-                  <View style={styles.metaSep} />
-                  <MaterialIcons name="tv" size={13} color={Colors.Success} />
-                  <Text style={[styles.recordMeta, { color: Colors.Success }]}>
-                    {t.home.autoSuffix}
-                  </Text>
-                </>
-              )}
-            </View>
+              <View style={styles.recordMetaRow}>
+                <Text style={styles.recordMeta}>
+                  {activeEffect.emoji} {activeEffect.label}
+                </Text>
+                <View style={styles.metaSep} />
+                <MaterialIcons name="timer" size={13} color={Colors.TextSubtle} />
+                <Text style={styles.recordMeta}>{duration}s</Text>
+                {musicSelection !== MUSIC_NONE_ID && (
+                  <>
+                    <View style={styles.metaSep} />
+                    <MaterialIcons name="music-note" size={13} color={Colors.TextSubtle} />
+                  </>
+                )}
+                {kioskMode && (
+                  <>
+                    <View style={styles.metaSep} />
+                    <MaterialIcons name="tv" size={13} color={Colors.Success} />
+                    <Text style={[styles.recordMeta, { color: Colors.Success }]}>
+                      {t.home.autoSuffix}
+                    </Text>
+                  </>
+                )}
+              </View>
             )}
           </View>
         </View>
@@ -1323,15 +1338,31 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
 
-  centerArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  centerArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+
+  recordStage: {
+    width: 250,
+    height: 250,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
 
   outerRing: {
     position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
     borderWidth: 1,
     borderColor: '#8B5CF666',
+    alignSelf: 'center',
     shadowColor: '#8B5CF6',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
@@ -1340,11 +1371,12 @@ const styles = StyleSheet.create({
   },
   innerRing: {
     position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
     borderWidth: 2,
     borderColor: '#8B5CF6AA',
+    alignSelf: 'center',
     shadowColor: '#8B5CF6',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
@@ -1353,9 +1385,9 @@ const styles = StyleSheet.create({
   },
 
   recordBtn: {
-    width: 172,
-    height: 172,
-    borderRadius: 86,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#8B5CF6',
@@ -1372,7 +1404,7 @@ const styles = StyleSheet.create({
 
   noEventTooltip: {
     position: 'absolute',
-    top: -52,
+    top: -10,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1414,7 +1446,13 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
 
-  recordLabelBlock: { alignItems: 'center', marginTop: Spacing.xl, gap: Spacing.xs },
+  recordLabelBlock: {
+    alignItems: 'center',
+    marginTop: 6,
+    paddingBottom: Spacing.lg,
+    gap: 6,
+    maxWidth: 320,
+  },
   recordLabel: {
     fontSize: 26,
     fontWeight: FontWeight.extrabold,
@@ -1431,7 +1469,11 @@ const styles = StyleSheet.create({
   recordMeta: { color: Colors.TextSubtle, fontSize: FontSize.sm },
   metaSep: { width: 1, height: 12, backgroundColor: Colors.Border, marginHorizontal: 2 },
 
-  bottomArea: { gap: Spacing.sm, marginBottom: Spacing.sm },
+  bottomArea: {
+    gap: Spacing.sm,
+    marginTop: 'auto',
+    marginBottom: Spacing.sm,
+  },
 
   kioskRow: {
     flexDirection: 'row',
@@ -1895,26 +1937,27 @@ const styles = StyleSheet.create({
 
   subscriptionBanner: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    left: 12,
+    right: 12,
     zIndex: 49,
+    borderRadius: 999,
     overflow: 'hidden',
   },
   subscriptionBannerTrial: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#F59E0B33',
+    borderWidth: 1,
+    borderColor: '#F59E0B33',
   },
   subscriptionBannerPro: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#10B98133',
+    borderWidth: 1,
+    borderColor: '#10B98133',
   },
   subscriptionBannerGrad: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: Spacing.lg,
+    gap: 8,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 999,
   },
   subscriptionBannerText: {
     flex: 1,
