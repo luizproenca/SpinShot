@@ -3,91 +3,134 @@ import { User } from './types';
 
 const supabase = getSupabaseClient();
 
-export const authService = {
-  async login(email: string, password: string): Promise<User> {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
+function mapAuthUserToUser(authUser: any, profile?: any): User {
+  return {
+    id: authUser.id,
+    email: authUser.email || '',
+    name:
+      profile?.username ||
+      authUser.user_metadata?.username ||
+      authUser.user_metadata?.name ||
+      authUser.email?.split('@')[0] ||
+      'Usuário',
+    plan: profile?.plan || 'free',
+    createdAt: authUser.created_at,
+  };
+}
 
-    const { data: profile } = await supabase
+async function getUserProfileSafe(userId: string): Promise<any | null> {
+  try {
+    const { data, error } = await supabase
       .from('user_profiles')
       .select('*')
-      .eq('id', data.user.id)
-      .single();
+      .eq('id', userId)
+      .maybeSingle();
 
-    return {
-      id: data.user.id,
-      email: data.user.email || email,
-      name: profile?.username || email.split('@')[0],
-      plan: 'free',
-      createdAt: data.user.created_at,
-    };
+    if (error) {
+      console.warn('[authService] profile lookup failed:', error.message);
+      return null;
+    }
+
+    return data ?? null;
+  } catch (error: any) {
+    console.warn('[authService] profile lookup exception:', error?.message || error);
+    return null;
+  }
+}
+
+export const authService = {
+  async login(email: string, password: string): Promise<User> {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data.user) {
+      throw new Error('Usuário não retornado no login');
+    }
+
+    const profile = await getUserProfileSafe(data.user.id);
+
+    return mapAuthUserToUser(data.user, profile);
   },
 
-  async register(name: string, email: string, password: string): Promise<{ user: User; needsEmailConfirmation: boolean }> {
+  async register(
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ user: User; needsEmailConfirmation: boolean }> {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { username: name } },
+      options: {
+        data: { username: name, name },
+      },
     });
 
-    if (error) throw new Error(error.message);
-    if (!data.user) throw new Error('Erro ao criar conta');
+    if (error) {
+      throw new Error(error.message);
+    }
 
-    // If session is already present, email confirmation is disabled → user is ready
+    if (!data.user) {
+      throw new Error('Erro ao criar conta');
+    }
+
+    const user = mapAuthUserToUser(data.user, {
+      username: name,
+      plan: 'free',
+    });
+
+    // Se session existe, confirmação por email está desativada
     if (data.session) {
       return {
-        user: {
-          id: data.user.id,
-          email: data.user.email || email,
-          name,
-          plan: 'free',
-          createdAt: data.user.created_at,
-        },
+        user,
         needsEmailConfirmation: false,
       };
     }
 
-    // No session → email confirmation required
+    // Sem session, precisa confirmar email
     return {
-      user: {
-        id: data.user.id,
-        email: data.user.email || email,
-        name,
-        plan: 'free',
-        createdAt: data.user.created_at,
-      },
+      user,
       needsEmailConfirmation: true,
     };
   },
 
   async getStoredUser(): Promise<User | null> {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return null;
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
 
-    const u = session.user;
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', u.id)
-      .single();
+    if (error) {
+      throw new Error(error.message);
+    }
 
-    return {
-      id: u.id,
-      email: u.email || '',
-      name: profile?.username || u.email?.split('@')[0] || 'Usuário',
-      plan: 'free',
-      createdAt: u.created_at,
-    };
+    if (!session?.user) {
+      return null;
+    }
+
+    const profile = await getUserProfileSafe(session.user.id);
+
+    return mapAuthUserToUser(session.user, profile);
   },
 
   async logout(): Promise<void> {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      throw new Error(error.message);
+    }
   },
 
   async upgradeToPro(_userId: string): Promise<User> {
-    // Placeholder: in production, trigger Stripe payment
     const current = await authService.getStoredUser();
-    if (!current) throw new Error('Usuário não encontrado');
+    if (!current) {
+      throw new Error('Usuário não encontrado');
+    }
+
     return { ...current, plan: 'pro' };
   },
 };
