@@ -15,14 +15,15 @@ import { usePlan } from '../../hooks/usePlan';
 import { useLanguage } from '../../hooks/useLanguage';
 import { Video } from '../../services/types';
 import { Colors, Spacing, FontSize, FontWeight, Radius } from '../../constants/theme';
-import { PRESET_CONFIGS } from '../../services/videoEffectsService';
+import { PRESET_CONFIGS, isVideoPreset, DEFAULT_PRESET } from '../../services/videoEffectsService';
 import * as Haptics from 'expo-haptics';
 
 const THUMB_BLURHASH = 'LGFFaXYk^6#M@-5c,1J5@[or[Q6.';
 
 // ─── Video Thumbnail ───────────────────────────────────────────────────────
 function VideoThumb({ video, size = 72 }: { video: Video; size?: number }) {
-  const presetInfo = PRESET_CONFIGS.boomerang;
+  const preset = isVideoPreset(video.effect) ? video.effect : DEFAULT_PRESET;
+  const presetInfo = PRESET_CONFIGS[preset];
   const colors: [string, string] = [video.eventColor + '55', video.eventColor + '18'];
   const iconSize = size <= 72 ? 14 : 20;
 
@@ -88,7 +89,8 @@ function FeaturedCard({
   latestLabel: string;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const presetInfo = PRESET_CONFIGS.boomerang;
+  const preset = isVideoPreset(video.effect) ? video.effect : DEFAULT_PRESET;
+  const presetInfo = PRESET_CONFIGS[preset];
 
   const onPressIn = () =>
     Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true, speed: 60 }).start();
@@ -181,7 +183,8 @@ function VideoCard({
   onShare: () => void;
   onDelete: () => void;
 }) {
-  const presetInfo = PRESET_CONFIGS.boomerang;
+  const preset = isVideoPreset(video.effect) ? video.effect : DEFAULT_PRESET;
+  const presetInfo = PRESET_CONFIGS[preset];
   const date = new Date(video.createdAt);
   const dateStr = date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
   const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -336,6 +339,7 @@ export default function VideosScreen() {
         eventName: v.eventName,
         eventColor: v.eventColor,
         logoUrl: matchingEvent?.logoUri || '',
+        effect: v.effect || DEFAULT_PRESET,
       },
     });
   };

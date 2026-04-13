@@ -12,6 +12,7 @@ import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../constants/theme';
+import { PRESET_CONFIGS, isVideoPreset, DEFAULT_PRESET } from '../services/videoEffectsService';
 import { usePlan } from '../hooks/usePlan';
 import { useLanguage } from '../hooks/useLanguage';
 
@@ -19,13 +20,14 @@ const AUTO_RETURN_DELAY = 12;
 
 export default function ShareScreen() {
   const {
-    shareUrl, eventName, eventColor, logoUrl, kioskMode,
+    shareUrl, eventName, eventColor, logoUrl, kioskMode, effect,
   } = useLocalSearchParams<{
     shareUrl: string;
     eventName: string;
     eventColor: string;
     logoUrl?: string;
     kioskMode?: string;
+    effect?: string;
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -233,12 +235,18 @@ export default function ShareScreen() {
           </Animated.View>
         </View>
 
-        {/* Boomerang effect badge */}
+        {/* Effect badge — dynamic from route param */}
         <View style={styles.effectRow}>
-          <View style={styles.effectBadge}>
-            <Text style={styles.effectBadgeEmoji}>🔁</Text>
-            <Text style={styles.effectBadgeText}>Boomerang</Text>
-          </View>
+          {(() => {
+            const preset = isVideoPreset(effect) ? effect : DEFAULT_PRESET;
+            const presetInfo = PRESET_CONFIGS[preset];
+            return (
+              <View style={styles.effectBadge}>
+                <Text style={styles.effectBadgeEmoji}>{presetInfo.emoji}</Text>
+                <Text style={styles.effectBadgeText}>{presetInfo.label}</Text>
+              </View>
+            );
+          })()}
         </View>
 
         <Text style={styles.qrHint}>{t.share.hint}</Text>

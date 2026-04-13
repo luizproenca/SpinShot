@@ -1,22 +1,22 @@
 /**
- * SpinShot 360 — RevenueCat Service
- * Wraps the react-native-purchases SDK for real IAP on iOS and Android.
- * The public SDK key is fetched securely from the backend edge function.
- * On web or when SDK is unavailable, falls back gracefully.
+ * SpinShot 360 — RevenueCat Service (Native: iOS + Android)
+ * Uses react-native-purchases SDK directly (no dynamic import — Metro handles
+ * platform resolution via .native.ts extension, so this file is NEVER bundled
+ * for web).
  */
 
 import { Platform } from 'react-native';
 import { getSupabaseClient } from '@/template';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RCPackage {
-  identifier: string;         // '$rc_monthly' | '$rc_annual'
-  productIdentifier: string;  // 'spinshot_pro_monthly' | 'spinshot_pro_annual'
-  priceString: string;        // localised price e.g. 'R$ 79,90'
-  introPrice: string | null;  // e.g. 'R$ 0,00' during trial
+  identifier: string;
+  productIdentifier: string;
+  priceString: string;
+  introPrice: string | null;
   offeringIdentifier: string;
-  raw: any;                   // raw Purchases.Package
+  raw: any;
 }
 
 export interface RCCustomerInfo {
@@ -40,8 +40,6 @@ export interface RestoreResult {
   error?: string;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 export const RC_ENTITLEMENT_ID = 'pro';
 export const RC_OFFERING_ID    = 'default';
 
@@ -50,16 +48,16 @@ export const RC_PRODUCT_IDS = {
   annual:  'spinshot_pro_annual',
 } as const;
 
-// ─── SDK Loader (dynamic to prevent web crash) ────────────────────────────────
+// ─── Lazy SDK loader (safe import inside .native.ts) ──────────────────────────
 
 let _Purchases: any = null;
 let _sdkReady = false;
 
-async function getSDK(): Promise<any | null> {
-  if (Platform.OS === 'web') return null;
+function getSDK(): any | null {
   if (_sdkReady) return _Purchases;
   try {
-    const mod = await import('react-native-purchases');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('react-native-purchases');
     _Purchases = mod.default ?? mod;
     _sdkReady = true;
     return _Purchases;
@@ -71,10 +69,6 @@ async function getSDK(): Promise<any | null> {
 
 // ─── Fetch SDK key from backend ───────────────────────────────────────────────
 
-/**
- * Fetches the RevenueCat public SDK key from the edge function.
- * Keys are stored as backend secrets — never exposed client-side.
- */
 async function fetchRCPublicKey(): Promise<string> {
   try {
     const supabase = getSupabaseClient();
@@ -82,7 +76,7 @@ async function fetchRCPublicKey(): Promise<string> {
       body: { action: 'get_config', platform: Platform.OS },
     });
     if (error || !data?.key) {
-      console.warn('[RC] Could not fetch public key from backend:', error?.message);
+      console.warn('[RC] Could not fetch public key:', error?.message);
       return '';
     }
     return data.key as string;
@@ -92,38 +86,27 @@ async function fetchRCPublicKey(): Promise<string> {
   }
 }
 
-// ─── Initialise ───────────────────────────────────────────────────────────────
+// ─── Init ─────────────────────────────────────────────────────────────────────
 
 let _initialised = false;
 let _cachedApiKey = '';
 
-/**
- * Call once after user logs in.
- * Fetches the public SDK key from the backend and configures RevenueCat.
- * @param appUserId  Supabase user id — used as RevenueCat App User ID
- */
 export async function initRevenueCat(appUserId: string): Promise<void> {
-  if (Platform.OS === 'web') return;
-  const Purchases = await getSDK();
+  const Purchases = getSDK();
   if (!Purchases) return;
 
   try {
-    // Fetch key server-side if not cached
     if (!_cachedApiKey) {
       _cachedApiKey = await fetchRCPublicKey();
     }
-
     if (!_cachedApiKey) {
-      console.warn('[RC] No public SDK key available. Configure EXPO_PUBLIC_RC_IOS_KEY / EXPO_PUBLIC_RC_ANDROID_KEY in backend secrets.');
+      console.warn('[RC] No public SDK key available.');
       return;
     }
-
     if (_initialised) {
-      // Already configured — just log in the user
       await Purchases.logIn(appUserId);
       return;
     }
-
     await Purchases.configure({ apiKey: _cachedApiKey, appUserID: appUserId });
     _initialised = true;
     console.log('[RC] Configured for user:', appUserId);
@@ -132,12 +115,8 @@ export async function initRevenueCat(appUserId: string): Promise<void> {
   }
 }
 
-/**
- * Log out from RevenueCat (on sign-out).
- */
 export async function logOutRevenueCat(): Promise<void> {
-  if (Platform.OS === 'web') return;
-  const Purchases = await getSDK();
+  const Purchases = getSDK();
   if (!Purchases || !_initialised) return;
   try {
     await Purchases.logOut();
@@ -147,14 +126,10 @@ export async function logOutRevenueCat(): Promise<void> {
   }
 }
 
-// ─── Offerings & Packages ─────────────────────────────────────────────────────
+// ─── Offerings ────────────────────────────────────────────────────────────────
 
-/**
- * Fetch current offering packages from RevenueCat.
- * Returns empty array on web / if SDK unavailable.
- */
 export async function getOfferings(): Promise<RCPackage[]> {
-  const Purchases = await getSDK();
+  const Purchases = getSDK();
   if (!Purchases || !_initialised) return [];
   try {
     const offerings = await Purchases.getOfferings();
@@ -177,24 +152,18 @@ export async function getOfferings(): Promise<RCPackage[]> {
 
 // ─── Purchase ─────────────────────────────────────────────────────────────────
 
-/**
- * Purchase a specific package.
- */
 export async function purchasePackage(pkg: RCPackage): Promise<PurchaseResult> {
-  const Purchases = await getSDK();
+  const Purchases = getSDK();
   if (!Purchases || !_initialised) {
     return { success: false, customerInfo: null, isCancelled: false, error: 'RevenueCat SDK not available' };
   }
   try {
     const result = await Purchases.purchasePackage(pkg.raw);
-    const ci = mapCustomerInfo(result.customerInfo);
-    return { success: true, customerInfo: ci, isCancelled: false };
+    return { success: true, customerInfo: mapCustomerInfo(result.customerInfo), isCancelled: false };
   } catch (e: any) {
     const isCancelled = e?.userCancelled === true || e?.code === 1;
     return {
-      success:      false,
-      customerInfo: null,
-      isCancelled,
+      success: false, customerInfo: null, isCancelled,
       error: isCancelled ? 'cancelled' : (e?.message ?? 'Purchase failed'),
     };
   }
@@ -203,7 +172,7 @@ export async function purchasePackage(pkg: RCPackage): Promise<PurchaseResult> {
 // ─── Restore ──────────────────────────────────────────────────────────────────
 
 export async function restorePurchases(): Promise<RestoreResult> {
-  const Purchases = await getSDK();
+  const Purchases = getSDK();
   if (!Purchases || !_initialised) {
     return { success: false, customerInfo: null, error: 'RevenueCat SDK not available' };
   }
@@ -218,7 +187,7 @@ export async function restorePurchases(): Promise<RestoreResult> {
 // ─── Customer Info ────────────────────────────────────────────────────────────
 
 export async function getCustomerInfo(): Promise<RCCustomerInfo | null> {
-  const Purchases = await getSDK();
+  const Purchases = getSDK();
   if (!Purchases || !_initialised) return null;
   try {
     const ci = await Purchases.getCustomerInfo();
@@ -228,34 +197,23 @@ export async function getCustomerInfo(): Promise<RCCustomerInfo | null> {
   }
 }
 
-/**
- * Check if the user has an active 'pro' entitlement.
- */
 export function isProActive(ci: RCCustomerInfo | null): boolean {
   if (!ci) return false;
   return ci.entitlements[RC_ENTITLEMENT_ID]?.isActive === true;
 }
 
-/**
- * Subscribe to customer info updates.
- * Returns unsubscribe function.
- */
 export function addCustomerInfoListener(
   listener: (ci: RCCustomerInfo) => void,
 ): () => void {
-  if (Platform.OS === 'web') return () => {};
-  let Purchases: any = null;
-  getSDK().then(sdk => {
-    if (!sdk) return;
-    Purchases = sdk;
-    sdk.addCustomerInfoUpdateListener((rawCi: any) => {
+  const Purchases = getSDK();
+  if (!Purchases) return () => {};
+  try {
+    Purchases.addCustomerInfoUpdateListener((rawCi: any) => {
       listener(mapCustomerInfo(rawCi));
     });
-  });
+  } catch {}
   return () => {
-    if (Purchases) {
-      try { Purchases.removeCustomerInfoUpdateListener(listener); } catch {}
-    }
+    try { Purchases?.removeCustomerInfoUpdateListener(listener); } catch {}
   };
 }
 

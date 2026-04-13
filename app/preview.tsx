@@ -45,7 +45,7 @@ export default function PreviewScreen() {
     return () => sub?.remove();
   }, []);
 
-  const presetInfo = PRESET_CONFIGS.boomerang;
+  const presetInfo = PRESET_CONFIGS[effect as keyof typeof PRESET_CONFIGS] ?? PRESET_CONFIGS.boomerang;
   const eventAccent = eventColor || Colors.Primary;
 
   // Accept both local files and processed Cloudinary URLs

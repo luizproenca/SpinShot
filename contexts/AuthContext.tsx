@@ -2,7 +2,6 @@ import React, { createContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../services/types';
 import { authService } from '../services/authService';
 import { getSupabaseClient } from '@/template';
-import { initPlanRevenueCat, logOutPlanRevenueCat } from './PlanContext';
 
 interface AuthContextType {
   user: User | null;
@@ -20,27 +19,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Load initial session
-    authService.getStoredUser().then(u => {
-      setUser(u);
-      setIsLoading(false);
-    });
-
-    // Listen for auth state changes
     const supabase = getSupabaseClient();
+
+    // Register auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
         setUser(null);
-        logOutPlanRevenueCat().catch(() => {});
+        setIsLoading(false);
       } else if (session?.user) {
-        const u = await authService.getStoredUser();
-        setUser(u);
-        // Init RevenueCat with the authenticated user id
-        if (session.user.id) {
-          initPlanRevenueCat(session.user.id).catch(() => {});
+        try {
+          const u = await authService.getStoredUser();
+          setUser(u);
+        } catch {
+          setUser(null);
+        } finally {
+          setIsLoading(false);
         }
       }
     });
+
+    // Load initial session — always resolves isLoading
+    authService.getStoredUser()
+      .then(u => { setUser(u); })
+      .catch(() => { setUser(null); })
+      .finally(() => { setIsLoading(false); });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -48,7 +50,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     const u = await authService.login(email, password);
     setUser(u);
-    if (u?.id) initPlanRevenueCat(u.id).catch(() => {});
   };
 
   const register = async (name: string, email: string, password: string): Promise<{ needsEmailConfirmation: boolean }> => {
@@ -62,7 +63,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     await authService.logout();
     setUser(null);
-    logOutPlanRevenueCat().catch(() => {});
   };
 
   const upgradeToPro = async () => {

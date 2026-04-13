@@ -110,8 +110,7 @@ function buildVideoTransformation(
       return buildHypeEffect(videoPublicId, duration);
     case 'boomerang':
     default:
-      //return buildBoomerangEffect();
-      return buildCinematicEffect(videoPublicId, duration);
+      return buildBoomerangEffect();
   }
 }
 
@@ -245,19 +244,11 @@ Deno.serve(async (req: Request) => {
       uploadedDuration,
     );
 
-    const frameOverlay = frameCloudinaryId
-      ? `/${buildFrameOverlay(String(frameCloudinaryId).trim())}`
-      : '';
-
-    const watermark =
-      !(isPro === true) ? `/${buildWatermarkTransformation()}` : '';
-
+    
     const effectUrl =
       `https://res.cloudinary.com/${CLOUD_NAME}/video/upload/` +
       `ac_none/` +
       `${videoTransformation}` +
-      `${frameOverlay}` +
-      `${watermark}` +
       `/${videoQuality}/f_mp4/${uploadedPublicId}.mp4`;
 
     console.log('Effect URL:', effectUrl);
@@ -288,6 +279,13 @@ Deno.serve(async (req: Request) => {
     const audio = musicCloudinaryId
       ? `/${buildAudioLayer(String(musicCloudinaryId).trim(), resolvedAudioDuration)}`
       : '/ac_none';
+      
+    const frameOverlay = frameCloudinaryId
+      ? `/${buildFrameOverlay(String(frameCloudinaryId).trim())}`
+      : '';
+
+    const watermark =
+      !(isPro === true) ? `/${buildWatermarkTransformation()}` : '';
 
 
 
@@ -295,8 +293,8 @@ Deno.serve(async (req: Request) => {
     const processedUrl =
       `https://res.cloudinary.com/${CLOUD_NAME}/video/upload` +
       `${audio}` +
-      //`${frameOverlay}` +
-      //`${watermark}` +
+      `${frameOverlay}` +
+      `${watermark}` +
       `/${videoQuality}/f_mp4/${effectPublicId}.mp4`;
 
     // 6) Thumbnail from materialized effect video

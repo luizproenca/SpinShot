@@ -3,7 +3,7 @@
  * react-native-purchases is not available on web. All functions are no-ops.
  */
 
-// ─── Types (re-exported so imports work on web too) ───────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RCPackage {
   identifier: string;
@@ -43,7 +43,7 @@ export const RC_PRODUCT_IDS = {
   annual:  'spinshot_pro_annual',
 } as const;
 
-// ─── No-op implementations for web ───────────────────────────────────────────
+// ─── No-op stubs for web ──────────────────────────────────────────────────────
 
 export async function initRevenueCat(_appUserId: string): Promise<void> {}
 
