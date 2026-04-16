@@ -39,6 +39,7 @@ module.exports = {
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
         "android.permission.READ_PHONE_STATE",
+        'android.permission.ACTIVITY_RECOGNITION'
       ]
     },
     web: {
