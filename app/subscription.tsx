@@ -27,7 +27,7 @@ import { formatExpiryDate, getTrialRemainingDays } from '../services/subscriptio
 
 // ─── Links legais ────────────────────────────────────────────────────────────
 // Troque a PRIVACY_URL pela sua URL real publicada
-const PRIVACY_URL = 'https://vgadqfvhcojpbayigkik.supabase.co/storage/v1/object/public/docs/privacy.html';
+const PRIVACY_URL = 'https://github.com/luizproenca/SpinShot/blob/main/pages/privacy';
 const TERMS_URL = 'https://vgadqfvhcojpbayigkik.supabase.co/storage/v1/object/public/docs/terms.html';
 
 // ─── Feature list ─────────────────────────────────────────────────────────────
