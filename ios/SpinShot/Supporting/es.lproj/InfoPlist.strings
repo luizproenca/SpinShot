@@ -1,0 +1,4 @@
+NSCameraUsageDescription = "SpinShot 360 usa la cámara para grabar videos 360, boomerangs y videos cinemáticos dentro de los eventos creados en la app, por ejemplo al capturar un video con marco y música para compartirlo o guardarlo.";
+NSMicrophoneUsageDescription = "SpinShot 360 usa el micrófono para grabar el audio de los videos capturados en la app, por ejemplo cuando creas un video 360 o un boomerang con sonido ambiente.";
+NSPhotoLibraryUsageDescription = "SpinShot 360 accede a la biblioteca de fotos para que puedas seleccionar contenido del dispositivo, por ejemplo al elegir una imagen o video para usar en un evento.";
+NSPhotoLibraryAddUsageDescription = "SpinShot 360 guarda en la galería los videos e imágenes creados en la app, por ejemplo cuando exportas un video terminado al dispositivo.";

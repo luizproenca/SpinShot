@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/template';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { User } from './types';
 
 const supabase = getSupabaseClient();
@@ -84,7 +85,6 @@ export const authService = {
       plan: 'free',
     });
 
-    // Se session existe, confirmação por email está desativada
     if (data.session) {
       return {
         user,
@@ -92,7 +92,6 @@ export const authService = {
       };
     }
 
-    // Sem session, precisa confirmar email
     return {
       user,
       needsEmailConfirmation: true,
@@ -123,6 +122,60 @@ export const authService = {
     if (error) {
       throw new Error(error.message);
     }
+  },
+
+  async deleteAccount(): Promise<void> {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      throw new Error(sessionError.message);
+    }
+
+    if (!session?.user) {
+      throw new Error('Usuário não autenticado');
+    }
+
+    const userId = session.user.id;
+
+    // Best-effort cleanup de arquivos antes da exclusão do usuário
+    const buckets: Array<{ bucket: string; limit: number }> = [
+      { bucket: 'spinshot-videos', limit: 200 },
+      { bucket: 'spinshot-logos',  limit: 100 },
+      { bucket: 'spinshot-frames', limit: 100 },
+    ];
+
+    for (const { bucket, limit } of buckets) {
+      try {
+        const { data: files } = await supabase.storage.from(bucket).list(userId, { limit });
+        if (files?.length) {
+          await supabase.storage.from(bucket).remove(files.map((f) => `${userId}/${f.name}`));
+        }
+      } catch (e) {
+        console.warn(`[deleteAccount] failed to remove files from ${bucket}`, e);
+      }
+    }
+
+    // Chama a Edge Function via SDK (garante URL e auth corretos automaticamente)
+    const { error: fnError } = await supabase.functions.invoke('delete-account', {
+      body: {},
+    });
+
+    if (fnError) {
+      let msg = fnError.message ?? 'Erro ao excluir conta';
+      if (fnError instanceof FunctionsHttpError) {
+        try {
+          const text = await fnError.context?.text();
+          if (text) msg = text;
+        } catch {}
+      }
+      throw new Error(msg);
+    }
+
+    // Limpa sessão local após exclusão bem-sucedida
+    await supabase.auth.signOut();
   },
 
   async upgradeToPro(_userId: string): Promise<User> {

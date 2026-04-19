@@ -13,6 +13,7 @@ interface AuthContextType {
     password: string
   ) => Promise<{ needsEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   upgradeToPro: () => Promise<void>;
 }
 
@@ -141,6 +142,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+   const deleteAccount = async () => {
+    await authService.deleteAccount();
+    setUser(null);
+  };
+
   const upgradeToPro = async () => {
     if (!user) return;
     const updated = await authService.upgradeToPro(user.id);
@@ -149,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, login, register, logout, upgradeToPro }}
+      value={{ user, isLoading, login, register, logout, deleteAccount, upgradeToPro }}
     >
       {children}
     </AuthContext.Provider>

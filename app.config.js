@@ -18,6 +18,12 @@ module.exports = {
       buildNumber: String(versionData.build),
       infoPlist: {
         UIStatusBarStyle: 'UIStatusBarStyleLightContent',
+        CFBundleAllowMixedLocalizations: true,
+        NSCameraUsageDescription: "O SpinShot 360 usa a câmera para gravar vídeos 360, boomerangs e vídeos cinemáticos dentro dos eventos criados no app, por exemplo ao capturar um vídeo com moldura e música para compartilhar ou salvar no celular.",
+        NSMicrophoneUsageDescription: "O SpinShot 360 usa o microfone para gravar o áudio dos vídeos capturados no app, por exemplo quando você cria um vídeo 360 ou boomerang com som ambiente durante um evento.",
+        NSPhotoLibraryUsageDescription: "O SpinShot 360 acessa a biblioteca de fotos para permitir que você selecione mídias do dispositivo, por exemplo ao escolher uma imagem, vídeo ou arquivo visual para usar em um evento, composição ou personalização do conteúdo.",
+        NSPhotoLibraryAddUsageDescription: "O SpinShot 360 salva vídeos e imagens gerados no app na sua biblioteca de fotos, por exemplo quando você exporta um vídeo finalizado para guardar no celular ou compartilhar."
+      
       },
     },
     android: {
@@ -77,6 +83,12 @@ module.exports = {
       eas: {
         projectId: "ef042039-232a-4f01-ab82-be7cb15c76e9"
       }  
+    },
+
+    locales: {
+      pt: './locales/pt.json',
+      en: './locales/en.json',
+      es: './locales/es.json'
     },
    
   },

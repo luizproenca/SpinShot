@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  TextInput, Platform, ActivityIndicator,
+  TextInput, Platform, ActivityIndicator, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -37,7 +37,7 @@ const FREE_BENEFITS = [
 ];
 
 export default function SettingsScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
   const { subscription, isPro, isTrial, showPaywall, subscriptionLoading, restorePurchases, cancelSubscription } = usePlan();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
@@ -49,6 +49,9 @@ export default function SettingsScreen() {
   const [nameValue, setNameValue] = useState(user?.name || '');
   const [savingName, setSavingName] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const handleSaveName = useCallback(async () => {
     if (!nameValue.trim()) {
@@ -78,6 +81,42 @@ export default function SettingsScreen() {
       return;
     }
     router.push('/analytics');
+  };
+
+  const handleDeleteAccount = () => {
+    showAlert(
+      t.settings.deleteAccountConfirm,
+      t.settings.deleteAccountMsg,
+      [
+        { text: t.common.cancel, style: 'cancel' },
+        {
+          text: t.settings.deleteAccount,
+          style: 'destructive',
+          onPress: () => {
+            setDeleteConfirmText('');
+            setShowDeleteModal(true);
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmDelete = async () => {
+    const word = t.settings.deleteAccountConfirmWord;
+    if (deleteConfirmText.trim().toUpperCase() !== word.toUpperCase()) {
+      showAlert(t.common.error, `${t.settings.deleteAccountPlaceholder}: ${word}`);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteAccount();
+      setShowDeleteModal(false);
+      router.replace('/(auth)/login');
+    } catch (e: any) {
+      showAlert(t.common.error, e.message || t.settings.deleteAccountError);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleLogout = () => {
@@ -163,7 +202,7 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingTop: insets.top + Spacing.md, paddingBottom: insets.bottom + 100 },
+          { paddingTop: insets.top + Spacing.md, paddingBottom: insets.bottom + 0 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -479,14 +518,86 @@ export default function SettingsScreen() {
               <Text style={[styles.menuText, { color: Colors.Error }]}>{t.settings.logout}</Text>
               <MaterialIcons name="chevron-right" size={18} color={Colors.Error + '88'} />
             </Pressable>
+
+            <View style={styles.menuDivider} />
+
+            <Pressable
+              style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.75 : 1 }]}
+              onPress={handleDeleteAccount}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: '#FF000022' }]}>
+                <MaterialIcons name="delete-forever" size={18} color="#FF3B30" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.menuText, { color: '#FF3B30' }]}>{t.settings.deleteAccount}</Text>
+                <Text style={{ color: Colors.TextMuted, fontSize: 10, marginTop: 1 }}>
+                  {t.settings.deleteAccountPermanentHint}
+                  </Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={18} color="#FF3B3066" />
+            </Pressable>
           </View>
         </View>
 
+      </ScrollView>
+
+      {/* Delete Account Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!deleting) setShowDeleteModal(false); }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <MaterialIcons name="warning" size={32} color="#FF3B30" />
+            </View>
+            <Text style={styles.modalTitle}>{t.settings.deleteAccountConfirm2}</Text>
+            <Text style={styles.modalMsg}>{t.settings.deleteAccountMsg2}</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={deleteConfirmText}
+              onChangeText={setDeleteConfirmText}
+              placeholder={t.settings.deleteAccountPlaceholder}
+              placeholderTextColor={Colors.TextMuted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!deleting}
+              accessibilityLabel={t.settings.deleteAccountPlaceholder}
+            />
+            <Pressable
+              style={({ pressed }) => [styles.modalDeleteBtn, {
+                opacity: pressed || deleting ? 0.75 : 1,
+                backgroundColor:
+                  deleteConfirmText.trim().toUpperCase() === t.settings.deleteAccountConfirmWord.toUpperCase()
+                    ? '#FF3B30' : '#FF3B3055',
+              }]}
+              onPress={confirmDelete}
+              disabled={deleting}
+            >
+              {deleting
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.modalDeleteBtnText}>{t.settings.deleteAccount}</Text>}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.modalCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => setShowDeleteModal(false)}
+              disabled={deleting}
+            >
+              <Text style={styles.modalCancelText}>{t.common.cancel}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      
+      <View style={[{ paddingHorizontal: Spacing.lg, paddingVertical: 4 }]}> 
         <View style={styles.appInfo}>
           <Text style={styles.appInfoText}>SpinShot 360 · {t.settings.version}</Text>
           <Text style={styles.appInfoSub}>{t.settings.allRights}</Text>
         </View>
-      </ScrollView>
+      </View>
     </LinearGradient>
   );
 }
@@ -634,6 +745,43 @@ const styles = StyleSheet.create({
   lockBadgeText: { color: Colors.TextMuted, fontSize: 9, fontWeight: FontWeight.semibold },
 
   appInfo: { alignItems: 'center', gap: 4, paddingBottom: Spacing.sm },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.8)',
+    alignItems: 'center', justifyContent: 'center', padding: Spacing.lg,
+  },
+  modalCard: {
+    width: '100%', maxWidth: 380,
+    backgroundColor: '#1A1740', borderRadius: Radius.xl,
+    borderWidth: 1.5, borderColor: '#FF3B3044',
+    padding: Spacing.xl, gap: Spacing.md, alignItems: 'center',
+  },
+  modalIconWrap: {
+    width: 60, height: 60, borderRadius: 30,
+    backgroundColor: '#FF3B3022', borderWidth: 1.5, borderColor: '#FF3B3055',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  modalTitle: {
+    color: Colors.TextPrimary, fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold, textAlign: 'center',
+  },
+  modalMsg: {
+    color: Colors.TextSubtle, fontSize: FontSize.sm,
+    textAlign: 'center', lineHeight: 20,
+  },
+  modalInput: {
+    width: '100%', borderWidth: 1.5, borderColor: '#FF3B3066',
+    borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 12,
+    color: Colors.TextPrimary, fontSize: FontSize.md,
+    backgroundColor: Colors.Surface, textAlign: 'center',
+    letterSpacing: 2, fontWeight: FontWeight.bold,
+  },
+  modalDeleteBtn: {
+    width: '100%', paddingVertical: 14, borderRadius: Radius.lg,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalDeleteBtnText: { color: '#fff', fontSize: FontSize.md, fontWeight: FontWeight.bold },
+  modalCancelBtn: { paddingVertical: 8, paddingHorizontal: 24 },
+  modalCancelText: { color: Colors.TextMuted, fontSize: FontSize.sm },
   appInfoText: { color: Colors.TextMuted, fontSize: FontSize.xs },
   appInfoSub: { color: Colors.TextMuted, fontSize: 10 },
 });

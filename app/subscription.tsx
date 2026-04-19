@@ -13,6 +13,7 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -23,6 +24,11 @@ import { usePlan } from '../hooks/usePlan';
 import { useLanguage } from '../hooks/useLanguage';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../constants/theme';
 import { formatExpiryDate, getTrialRemainingDays } from '../services/subscriptionService';
+
+// ─── Links legais ────────────────────────────────────────────────────────────
+// Troque a PRIVACY_URL pela sua URL real publicada
+const PRIVACY_URL = 'https://vgadqfvhcojpbayigkik.supabase.co/storage/v1/object/public/docs/privacy.html';
+const TERMS_URL = 'https://vgadqfvhcojpbayigkik.supabase.co/storage/v1/object/public/docs/terms.html';
 
 // ─── Feature list ─────────────────────────────────────────────────────────────
 
@@ -142,6 +148,19 @@ export default function SubscriptionScreen() {
     ]);
   }, [cancelSubscription, showAlert, t, ts]);
 
+  const openUrl = useCallback(async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        showAlert((t.common as any).error, 'Não foi possível abrir o link.');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      showAlert((t.common as any).error, 'Não foi possível abrir o link.');
+    }
+  }, [showAlert, t]);
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <LinearGradient colors={['#0D0820', '#0A0F2E', '#0D0820']} style={styles.container}>
@@ -201,6 +220,13 @@ export default function SubscriptionScreen() {
             <Text style={styles.planSub}>
               {isPro ? ts.proSub : ts.freeSub}
             </Text>
+
+            {/* Informações exigidas para assinatura */}
+            {isPro && (
+              <Text style={styles.subscriptionMeta}>
+                {subscription.plan === 'pro_annual' ? '1 ano' : '1 mês'}
+              </Text>
+            )}
           </View>
 
           {/* Pro badge */}
@@ -299,6 +325,7 @@ export default function SubscriptionScreen() {
               <View style={styles.upgradeTextWrap}>
                 <Text style={styles.upgradeTitle}>{ts.upgradeCta}</Text>
                 <Text style={styles.upgradeSub}>{ts.upgradeSub}</Text>
+                <Text style={styles.upgradeMeta}>Renovação automática · 1 mês ou 1 ano</Text>
               </View>
               <MaterialIcons name="chevron-right" size={22} color="rgba(255,255,255,0.8)" />
             </LinearGradient>
@@ -390,8 +417,47 @@ export default function SubscriptionScreen() {
           </View>
         </View>
 
+        {/* ── Links legais exigidos pela Apple ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>LEGAL</Text>
+
+          <View style={styles.actionsBox}>
+            <Pressable
+              style={({ pressed }) => [styles.actionRow, { opacity: pressed ? 0.75 : 1 }]}
+              onPress={() => openUrl(PRIVACY_URL)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: Colors.Primary + '18' }]}>
+                <MaterialIcons name="privacy-tip" size={19} color={Colors.Primary} />
+              </View>
+              <View style={styles.actionBody}>
+                <Text style={styles.actionTitle}>Política de Privacidade</Text>
+                <Text style={styles.actionSub}>Abrir documento de privacidade</Text>
+              </View>
+              <MaterialIcons name="open-in-new" size={18} color={Colors.TextMuted} />
+            </Pressable>
+
+            <View style={styles.actionDivider} />
+
+            <Pressable
+              style={({ pressed }) => [styles.actionRow, { opacity: pressed ? 0.75 : 1 }]}
+              onPress={() => openUrl(TERMS_URL)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: Colors.Primary + '18' }]}>
+                <MaterialIcons name="gavel" size={19} color={Colors.Primary} />
+              </View>
+              <View style={styles.actionBody}>
+                <Text style={styles.actionTitle}>Termos de Uso</Text>
+                <Text style={styles.actionSub}>Abrir EULA / termos da assinatura</Text>
+              </View>
+              <MaterialIcons name="open-in-new" size={18} color={Colors.TextMuted} />
+            </Pressable>
+          </View>
+        </View>
+
         {/* ── Legal note ── */}
-        <Text style={styles.legalNote}>{ts.legalNote}</Text>
+        <Text style={styles.legalNote}>
+          A assinatura é renovada automaticamente, salvo cancelamento com pelo menos 24 horas antes do fim do período atual. O pagamento será cobrado na sua conta Apple ID na confirmação da compra. Você pode gerenciar ou cancelar sua assinatura nas configurações da App Store.
+        </Text>
       </ScrollView>
     </LinearGradient>
   );
@@ -457,6 +523,11 @@ const styles = StyleSheet.create({
     color: Colors.TextSubtle,
     marginTop: 4,
     lineHeight: 18,
+  },
+  subscriptionMeta: {
+    fontSize: 11,
+    color: Colors.TextMuted,
+    marginTop: 4,
   },
   proBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
@@ -560,6 +631,11 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontSize: FontSize.xs,
     marginTop: 2,
+  },
+  upgradeMeta: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 11,
+    marginTop: 4,
   },
 
   // Section
