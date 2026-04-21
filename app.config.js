@@ -67,7 +67,6 @@ module.exports = {
       'expo-web-browser',
       '@react-native-community/datetimepicker',
       'expo-asset',
-      'expo-audio',
       'expo-font',
       'expo-localization',
       'expo-mail-composer',

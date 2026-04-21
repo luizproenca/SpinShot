@@ -15,6 +15,7 @@ import { getSupabaseClient } from '@/template';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../../constants/theme';
 import { LANGUAGES } from '../../constants/config';
 import { formatExpiryDate, getTrialRemainingDays } from '../../services/subscriptionService';
+import * as Application from 'expo-application';
 
 const PRO_BENEFITS = [
   { icon: 'hide-source', label: 'Sem marca d\'água em todos os vídeos' },
@@ -44,6 +45,9 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { showAlert } = useAlert();
 
+  const version = Application.nativeApplicationVersion ?? '1.0.0';
+  const build = Application.nativeBuildVersion ?? '1';
+
   const [selectedLang, setSelectedLang] = useState(language);
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name || '');
@@ -52,6 +56,8 @@ export default function SettingsScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  
 
   const handleSaveName = useCallback(async () => {
     if (!nameValue.trim()) {
@@ -594,7 +600,7 @@ export default function SettingsScreen() {
       
       <View style={[{ paddingHorizontal: Spacing.lg, paddingVertical: 4 }]}> 
         <View style={styles.appInfo}>
-          <Text style={styles.appInfoText}>SpinShot 360 · {t.settings.version}</Text>
+          <Text style={styles.appInfoText}>SpinShot 360 · {t.settings.version} {version} • Build {build}</Text>
           <Text style={styles.appInfoSub}>{t.settings.allRights}</Text>
         </View>
       </View>

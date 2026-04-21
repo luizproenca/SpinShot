@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "spinshot-360",
+  "private_key_id": "4d7d5f869b78f94da58c4f2fe6efa7f4ac51fd4c",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCtLkGCUeLXg33d\nKo7NbJBfvhHo/Uw7I+ylRRjUEcaZngq8QrIxO1LI17y6q3rvn3Iwg/lHkl7pB8TC\nUD6af9Z3K/dP9Q3UgAOiRpwENi9DTgG6N+qGOADzKoluhkW4qPRrv5TFM+gL0mz1\nt4+tvDwGmAHVOrEG48lCB1z68dLC+iPH71Dz3QEFO8pOPwh/P6fgGaHfjcNtSHj4\n7QR7/RjnJAhc4nKkQvKXdjfFZsW52IB9F/Q0hklF75mTcEvnqZXnkY/QjMsuj50H\nfvNMJwHd8IpLUwHs1KnrLYpHXeGgJNNjbHgVJx8a/L29RcqHEL0+xyyllsZsrpqK\nPkxAu0D7AgMBAAECggEAQyM+lEYomgJJBjfcerkO0389NEUWi4rm0D+UW4q0opNJ\neCinKjzkYCZ67SdTlpgKzdIsDtoo31B6sBYp3v2WaEbsLtxCy1IBlqSnEV7sPbx9\nIPNSgUwu2hZwhx+Y4fjmIOt5wmXYHNUsFqpeEi16W9gMRdzmClS+jlGKc2LSoXFy\nD+vraRqZHNLkiqZXEB5SISZUTcIyOjdrwD3r9+Ty359GvB1Ku2CPmg7YNZ2V2Qvh\nR5TNxfmknhBLvk03c5pDQmJdxooh/35imqZG2K1iv8zsFk41b2khLKAu84kS27C7\nv8LPnFf17fiKgtf/xBC2nMUfFuC9/ignP1My6knYMQKBgQDl63Zo2U8tYHKFh54l\nqVQrYrsFvIx2xSUGd1me+s0HqAGWmFkkw0OVfwrWnyzkz7kF/1VDinwDW737RNfC\n6AyUOqMp/nOG8SNojXvezY7baer54gWcMTHBLJGIxkwmJOQX/VTN810AMjf65uki\nCd/K9FCSrA5al27zTjC2acZ46QKBgQDA0ywf3SaoIaXB3Q8KFkLXpv0e0jNtcJfd\nhCsollP11ZEyH75izMg8/0kWmksNrPmE3/rrpBx8BpQkojyf7FIabPZ09z/sMJop\nFJGE2h8+kryQnE3LAA55aFsFKiIz3IKar+778n9N0ETpk1dxV7a/mAVJ4YN0f9VO\ntmF+2fs8QwKBgC21ewvrL++AfiQHyywHluEtNqs0SeSO2waHEb0mdT5xaydqUEab\nv0LoR9pVONKgbVNA6M2NqYvtYD6k+BQal+2cHrYJjSQlqnltr1OjICSE0R8ujRj5\nOsABwUkkyxzGNsaCKarsF/AjC7gI0g5fUiuCGMagCBaAhqE+STbqnneJAoGAA2m5\ndjbr4D34OR44je0m8bo68Li3wFAl3/3e5bEDe250S3bUX9tQEARUvtmsSmmtYPS1\n9EXLW0aiiKN2fz4nleAn3Jojv4J8uA1tJfTWaL0gKU8a8WTm3K9ELSs5v8E/bo1+\npWb9adst3RSGj7MFwQ5nyY78TKuWkvYXc69YCxECgYEAyJeol+6rVWinJ+qsNXU2\nyua2pGPtKRbx3raSuhXj9b60SSb64B0Ugjd59JmGON75aIXUI41XjGWZG/5WlnTu\nXLyDqp6QU+iD561/Ivq7fevo+wFj5CTz8WTBWgay7w7bqahBDJWt6lyTCYN4288B\nF+r1SFGn5OO9DPC7xNJCX0A=\n-----END PRIVATE KEY-----\n",
+  "client_email": "play-console-service-account@spinshot-360.iam.gserviceaccount.com",
+  "client_id": "111557134268294207339",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/play-console-service-account%40spinshot-360.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

@@ -35,7 +35,7 @@
       </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>5</string>
     <key>LSApplicationQueriesSchemes</key>
     <array>
       <string>airmail</string>
@@ -78,16 +78,8 @@
     <string>Allow $(PRODUCT_NAME) to access your calendars</string>
     <key>NSCameraUsageDescription</key>
     <string>O SpinShot 360 usa a câmera para gravar vídeos 360, boomerangs e vídeos cinemáticos dentro dos eventos criados no app, por exemplo ao capturar um vídeo com moldura e música para compartilhar ou salvar no celular.</string>
-    <key>NSContactsUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your contacts</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to use Face ID</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
-    <key>NSLocationAlwaysUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>O SpinShot 360 usa o microfone para gravar o áudio dos vídeos capturados no app, por exemplo quando você cria um vídeo 360 ou boomerang com som ambiente durante um evento.</string>
     <key>NSMotionUsageDescription</key>

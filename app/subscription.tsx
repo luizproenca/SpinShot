@@ -1,10 +1,10 @@
 /**
- * SpinShot 360 — Subscription Management Screen
+ * SpinShot 360 — Subscription Management / Paywall Screen
  * Accessible from Settings → Manage subscription
- * Shows: current plan, trial countdown, expiry date, restore, upgrade CTA
+ * Dynamic prices from RevenueCat offerings
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Platform,
   Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,14 +22,15 @@ import { useAlert } from '@/template';
 import { usePlan } from '../hooks/usePlan';
 import { useLanguage } from '../hooks/useLanguage';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../constants/theme';
-import { formatExpiryDate, getTrialRemainingDays } from '../services/subscriptionService';
+import {
+  formatExpiryDate,
+  getTrialRemainingDays,
+  getCurrentPlatform,
+} from '../services/subscriptionService';
 
 // ─── Links legais ────────────────────────────────────────────────────────────
-// Troque a PRIVACY_URL pela sua URL real publicada
 const PRIVACY_URL = 'https://luizproenca.github.io/SpinShot/privacy.html';
 const TERMS_URL = 'https://luizproenca.github.io/SpinShot/terms.html';
-
-// ─── Feature list ─────────────────────────────────────────────────────────────
 
 interface Feature {
   icon: string;
@@ -49,7 +49,59 @@ const FEATURES: Feature[] = [
   { icon: 'business',       labelKey: 'featureEventLogo',       proOnly: true },
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
+type StorePlan = {
+  productId: 'spinshot_pro_monthly' | 'spinshot_pro_annual';
+  title: string;
+  price: string;
+  introPrice: string | null;
+  identifier: string;
+  kind: 'monthly' | 'annual';
+};
+
+function resolveStorePlans(rcPackages: Array<{
+  identifier: string;
+  productIdentifier: string;
+  priceString: string;
+  introPrice: string | null;
+}>) {
+  const monthlyPkg =
+    rcPackages.find(p => p.productIdentifier === 'spinshot_pro_monthly') ??
+    rcPackages.find(p => p.identifier === '$rc_monthly') ??
+    null;
+
+  const annualPkg =
+    rcPackages.find(p => p.productIdentifier === 'spinshot_pro_annual') ??
+    rcPackages.find(p => p.identifier === '$rc_annual') ??
+    null;
+
+  const monthly: StorePlan | null = monthlyPkg
+    ? {
+        productId: 'spinshot_pro_monthly',
+        title: 'Mensal',
+        price: monthlyPkg.priceString,
+        introPrice: monthlyPkg.introPrice,
+        identifier: monthlyPkg.identifier,
+        kind: 'monthly',
+      }
+    : null;
+
+  const annual: StorePlan | null = annualPkg
+    ? {
+        productId: 'spinshot_pro_annual',
+        title: 'Anual',
+        price: annualPkg.priceString,
+        introPrice: annualPkg.introPrice,
+        identifier: annualPkg.identifier,
+        kind: 'annual',
+      }
+    : null;
+
+  return {
+    monthly,
+    annual,
+    hasAnyPlan: Boolean(monthly || annual),
+  };
+}
 
 export default function SubscriptionScreen() {
   const router = useRouter();
@@ -61,25 +113,33 @@ export default function SubscriptionScreen() {
   const {
     subscription,
     isPro,
-    isTrial,
     subscriptionLoading,
+    rcPackages,
+    rcPackagesLoading,
     showPaywall,
+    purchasePlan,
     restorePurchases,
     cancelSubscription,
     refreshSubscription,
   } = usePlan();
 
-  const [restoring, setRestoring]   = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [purchasingId, setPurchasingId] = useState<string | null>(null);
+
+  const { monthly, annual, hasAnyPlan } = useMemo(
+    () => resolveStorePlans(rcPackages),
+    [rcPackages]
+  );
 
   // ── Derived ──────────────────────────────────────────────────────────────
-  const isActive        = subscription.status === 'active';
-  const isTrialActive   = subscription.status === 'trial';
-  const isExpired       = subscription.status === 'expired' || subscription.status === 'cancelled';
-  const isCancelled     = subscription.status === 'cancelled';
+  const isActive = subscription.status === 'active';
+  const isTrialActive = subscription.status === 'trial';
+  const isExpired = subscription.status === 'expired' || subscription.status === 'cancelled';
+  const isCancelled = subscription.status === 'cancelled';
 
-  const trialDaysLeft     = getTrialRemainingDays(subscription.trialStartAt);
-  const expiryFormatted   = formatExpiryDate(subscription.expiresAt, language);
+  const trialDaysLeft = getTrialRemainingDays(subscription.trialStartAt);
+  const expiryFormatted = formatExpiryDate(subscription.expiresAt, language);
 
   const planLabel = isPro
     ? (subscription.plan === 'pro_annual'
@@ -118,6 +178,7 @@ export default function SubscriptionScreen() {
     setRestoring(true);
     const result = await restorePurchases();
     setRestoring(false);
+
     if (result.success) {
       showAlert(
         (t.common as any).success,
@@ -161,6 +222,32 @@ export default function SubscriptionScreen() {
     }
   }, [showAlert, t]);
 
+  const handlePurchase = useCallback(async (plan: StorePlan) => {
+    setPurchasingId(plan.productId);
+    try {
+      const result = await purchasePlan(plan.productId, getCurrentPlatform());
+
+      if (result.success) {
+        showAlert(
+          (t.common as any).success,
+          result.isTrial
+            ? 'Assinatura iniciada com período promocional.'
+            : 'Assinatura ativada com sucesso.'
+        );
+        return;
+      }
+
+      if (result.error === 'cancelled') return;
+
+      showAlert(
+        (t.common as any).error,
+        result.error || 'Não foi possível concluir a compra.'
+      );
+    } finally {
+      setPurchasingId(null);
+    }
+  }, [purchasePlan, showAlert, t]);
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <LinearGradient colors={['#0D0820', '#0A0F2E', '#0D0820']} style={styles.container}>
@@ -201,7 +288,6 @@ export default function SubscriptionScreen() {
             { borderColor: isPro ? Colors.Primary + '55' : Colors.Border },
           ]}
         >
-          {/* Plan icon */}
           <View style={[
             styles.planIconWrap,
             { backgroundColor: isPro ? Colors.Primary + '22' : Colors.SurfaceElevated },
@@ -221,7 +307,6 @@ export default function SubscriptionScreen() {
               {isPro ? ts.proSub : ts.freeSub}
             </Text>
 
-            {/* Informações exigidas para assinatura */}
             {isPro && (
               <Text style={styles.subscriptionMeta}>
                 {subscription.plan === 'pro_annual' ? '1 ano' : '1 mês'}
@@ -229,7 +314,6 @@ export default function SubscriptionScreen() {
             )}
           </View>
 
-          {/* Pro badge */}
           {isPro && (
             <View style={styles.proBadge}>
               <MaterialIcons name="star" size={11} color={Colors.Primary} />
@@ -247,7 +331,6 @@ export default function SubscriptionScreen() {
           <View style={styles.statusBody}>
             <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
 
-            {/* Trial countdown */}
             {isTrialActive && trialDaysLeft > 0 && (
               <View style={styles.trialCountdown}>
                 <Text style={[styles.trialDays, { color: Colors.Warning }]}>
@@ -259,21 +342,18 @@ export default function SubscriptionScreen() {
               </View>
             )}
 
-            {/* Trial ends on */}
             {isTrialActive && subscription.expiresAt && (
               <Text style={styles.statusMeta}>
                 {ts.trialEndsOn}: {expiryFormatted}
               </Text>
             )}
 
-            {/* Renews on (active, non-trial) */}
             {isActive && !isTrialActive && subscription.expiresAt && (
               <Text style={styles.statusMeta}>
                 {ts.renewsOn}: {expiryFormatted}
               </Text>
             )}
 
-            {/* Expired on */}
             {isExpired && subscription.expiresAt && (
               <Text style={styles.statusMeta}>
                 {ts.expiredOn}: {expiryFormatted}
@@ -284,6 +364,123 @@ export default function SubscriptionScreen() {
             <ActivityIndicator size="small" color={statusColor} />
           )}
         </View>
+
+        {/* ── Dynamic paywall ── */}
+        {!isPro && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>{ts.upgradeCta}</Text>
+
+            {rcPackagesLoading ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="small" color={Colors.Primary} />
+                <Text style={styles.loadingText}>Carregando planos da loja…</Text>
+              </View>
+            ) : hasAnyPlan ? (
+              <View style={styles.paywallStack}>
+                {monthly && (
+                  <Pressable
+                    style={({ pressed }) => [styles.planOption, { opacity: pressed ? 0.92 : 1 }]}
+                    onPress={() => handlePurchase(monthly)}
+                    disabled={purchasingId !== null}
+                  >
+                    <LinearGradient
+                      colors={['#1A1740', '#12102A']}
+                      style={styles.planOptionGradient}
+                    >
+                      <View style={styles.planOptionHeader}>
+                        <View style={styles.planOptionTitleWrap}>
+                          <Text style={styles.planOptionTitle}>{monthly.title}</Text>
+                          <Text style={styles.planOptionSubtitle}>Renovação automática</Text>
+                        </View>
+                        <MaterialIcons name="calendar-month" size={22} color={Colors.Primary} />
+                      </View>
+
+                      <Text style={styles.planOptionPrice}>{monthly.price}</Text>
+
+                      {monthly.introPrice && (
+                        <Text style={styles.planOptionMeta}>
+                          Oferta introdutória disponível
+                        </Text>
+                      )}
+
+                      <View style={styles.planOptionButton}>
+                        {purchasingId === monthly.productId ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <>
+                            <Text style={styles.planOptionButtonText}>Assinar mensal</Text>
+                            <MaterialIcons name="chevron-right" size={18} color="#fff" />
+                          </>
+                        )}
+                      </View>
+                    </LinearGradient>
+                  </Pressable>
+                )}
+
+                {annual && (
+                  <Pressable
+                    style={({ pressed }) => [styles.planOption, { opacity: pressed ? 0.92 : 1 }]}
+                    onPress={() => handlePurchase(annual)}
+                    disabled={purchasingId !== null}
+                  >
+                    <LinearGradient
+                      colors={['#7C3AED', '#EC4899']}
+                      style={styles.planOptionGradient}
+                    >
+                      <View style={styles.planOptionHeader}>
+                        <View style={styles.planOptionTitleWrap}>
+                          <View style={styles.bestBadge}>
+                            <Text style={styles.bestBadgeText}>MELHOR VALOR</Text>
+                          </View>
+                          <Text style={styles.planOptionTitleLight}>{annual.title}</Text>
+                          <Text style={styles.planOptionSubtitleLight}>Renovação automática</Text>
+                        </View>
+                        <MaterialIcons name="workspace-premium" size={22} color="#FDE68A" />
+                      </View>
+
+                      <Text style={styles.planOptionPriceLight}>{annual.price}</Text>
+
+                      {annual.introPrice && (
+                        <Text style={styles.planOptionMetaLight}>
+                          Oferta introdutória disponível
+                        </Text>
+                      )}
+
+                      <Text style={styles.planOptionMetaLight}>
+                        Cobrança recorrente conforme preço exibido pela loja
+                      </Text>
+
+                      <View style={styles.planOptionButtonLight}>
+                        {purchasingId === annual.productId ? (
+                          <ActivityIndicator size="small" color={Colors.Primary} />
+                        ) : (
+                          <>
+                            <Text style={styles.planOptionButtonLightText}>Assinar anual</Text>
+                            <MaterialIcons name="chevron-right" size={18} color={Colors.Primary} />
+                          </>
+                        )}
+                      </View>
+                    </LinearGradient>
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              <View style={styles.emptyPlansBox}>
+                <MaterialIcons name="subscriptions" size={22} color={Colors.TextMuted} />
+                <Text style={styles.emptyPlansTitle}>Nenhum plano disponível</Text>
+                <Text style={styles.emptyPlansText}>
+                  Os planos só aparecem quando forem encontrados na loja.
+                </Text>
+                <Pressable
+                  style={({ pressed }) => [styles.retryBtn, { opacity: pressed ? 0.85 : 1 }]}
+                  onPress={() => showPaywall('generic')}
+                >
+                  <Text style={styles.retryBtnText}>Tentar novamente</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ── Trial CTA banner ── */}
         {isTrialActive && (
@@ -306,30 +503,6 @@ export default function SubscriptionScreen() {
               <Text style={styles.trialBannerBtnText}>{ts.upgradeCta}</Text>
             </Pressable>
           </LinearGradient>
-        )}
-
-        {/* ── Upgrade CTA (free users) ── */}
-        {!isPro && (
-          <Pressable
-            style={({ pressed }) => [{ opacity: pressed ? 0.92 : 1 }]}
-            onPress={() => showPaywall('generic')}
-          >
-            <LinearGradient
-              colors={['#7C3AED', '#EC4899']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={styles.upgradeCard}
-            >
-              <View style={styles.upgradeIconWrap}>
-                <MaterialIcons name="star" size={24} color="#F59E0B" />
-              </View>
-              <View style={styles.upgradeTextWrap}>
-                <Text style={styles.upgradeTitle}>{ts.upgradeCta}</Text>
-                <Text style={styles.upgradeSub}>{ts.upgradeSub}</Text>
-                <Text style={styles.upgradeMeta}>Renovação automática · 1 mês ou 1 ano</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={22} color="rgba(255,255,255,0.8)" />
-            </LinearGradient>
-          </Pressable>
         )}
 
         {/* ── Features included ── */}
@@ -375,7 +548,6 @@ export default function SubscriptionScreen() {
           <Text style={styles.sectionLabel}>{ts.manageTitle}</Text>
 
           <View style={styles.actionsBox}>
-            {/* Restore purchases */}
             <Pressable
               style={({ pressed }) => [styles.actionRow, { opacity: pressed ? 0.75 : 1 }]}
               onPress={handleRestore}
@@ -393,7 +565,6 @@ export default function SubscriptionScreen() {
               <MaterialIcons name="chevron-right" size={18} color={Colors.TextMuted} />
             </Pressable>
 
-            {/* Cancel — only for active / trial Pro */}
             {isPro && !isExpired && (
               <>
                 <View style={styles.actionDivider} />
@@ -417,7 +588,7 @@ export default function SubscriptionScreen() {
           </View>
         </View>
 
-        {/* ── Links legais exigidos pela Apple ── */}
+        {/* ── Links legais ── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>LEGAL</Text>
 
@@ -454,16 +625,13 @@ export default function SubscriptionScreen() {
           </View>
         </View>
 
-        {/* ── Legal note ── */}
         <Text style={styles.legalNote}>
-          A assinatura é renovada automaticamente, salvo cancelamento com pelo menos 24 horas antes do fim do período atual. O pagamento será cobrado na sua conta Apple ID na confirmação da compra. Você pode gerenciar ou cancelar sua assinatura nas configurações da App Store.
+          A assinatura é renovada automaticamente, salvo cancelamento com pelo menos 24 horas antes do fim do período atual. O pagamento será cobrado na sua conta Apple ID ou Google Play na confirmação da compra. Você pode gerenciar ou cancelar sua assinatura nas configurações da loja.
         </Text>
       </ScrollView>
     </LinearGradient>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -476,10 +644,14 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: Colors.SurfaceElevated,
-    borderWidth: 1, borderColor: Colors.Border,
+    borderWidth: 1,
+    borderColor: Colors.Border,
   },
   headerTitle: {
     flex: 1,
@@ -488,8 +660,11 @@ const styles = StyleSheet.create({
     color: Colors.TextPrimary,
   },
   refreshBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   scroll: {
@@ -498,7 +673,6 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.sm,
   },
 
-  // Plan card
   planCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -508,8 +682,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   planIconWrap: {
-    width: 60, height: 60, borderRadius: 30,
-    alignItems: 'center', justifyContent: 'center',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   planInfo: { flex: 1 },
   planName: {
@@ -530,11 +707,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   proBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
     backgroundColor: Colors.Primary + '22',
     borderRadius: Radius.full,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderWidth: 1, borderColor: Colors.Primary + '44',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: Colors.Primary + '44',
   },
   proBadgeText: {
     color: Colors.Primary,
@@ -542,7 +723,6 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
   },
 
-  // Status strip
   statusStrip: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -556,7 +736,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
   },
-  trialCountdown: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
+  trialCountdown: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 2,
+  },
   trialDays: {
     fontSize: 28,
     fontWeight: FontWeight.extrabold,
@@ -572,7 +756,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Trial banner
   trialBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -603,42 +786,6 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
   },
 
-  // Upgrade CTA
-  upgradeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    borderRadius: Radius.xl,
-    padding: Spacing.md,
-    shadowColor: Colors.Primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  upgradeIconWrap: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  upgradeTextWrap: { flex: 1 },
-  upgradeTitle: {
-    color: '#fff',
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.bold,
-  },
-  upgradeSub: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: FontSize.xs,
-    marginTop: 2,
-  },
-  upgradeMeta: {
-    color: 'rgba(255,255,255,0.68)',
-    fontSize: 11,
-    marginTop: 4,
-  },
-
-  // Section
   section: { gap: Spacing.sm },
   sectionLabel: {
     fontSize: FontSize.xs,
@@ -648,7 +795,161 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  // Features
+  loadingBox: {
+    backgroundColor: Colors.SurfaceElevated,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  loadingText: {
+    color: Colors.TextMuted,
+    fontSize: FontSize.sm,
+  },
+
+  paywallStack: {
+    gap: Spacing.md,
+  },
+  planOption: {
+    borderRadius: Radius.xl,
+    overflow: 'hidden',
+  },
+  planOptionGradient: {
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+  },
+  planOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  planOptionTitleWrap: {
+    flex: 1,
+  },
+  planOptionTitle: {
+    color: Colors.TextPrimary,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+  },
+  planOptionTitleLight: {
+    color: '#fff',
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+  },
+  planOptionSubtitle: {
+    color: Colors.TextMuted,
+    fontSize: FontSize.xs,
+    marginTop: 2,
+  },
+  planOptionSubtitleLight: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: FontSize.xs,
+    marginTop: 2,
+  },
+  planOptionPrice: {
+    color: Colors.TextPrimary,
+    fontSize: 28,
+    fontWeight: FontWeight.extrabold,
+  },
+  planOptionPriceLight: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: FontWeight.extrabold,
+  },
+  planOptionMeta: {
+    color: Colors.TextMuted,
+    fontSize: 11,
+  },
+  planOptionMetaLight: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+  },
+  planOptionButton: {
+    marginTop: 4,
+    backgroundColor: Colors.Primary,
+    borderRadius: Radius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  planOptionButtonText: {
+    color: '#fff',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
+  planOptionButtonLight: {
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderRadius: Radius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  planOptionButtonLightText: {
+    color: Colors.Primary,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
+  bestBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  bestBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+  },
+
+  emptyPlansBox: {
+    backgroundColor: Colors.SurfaceElevated,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  emptyPlansTitle: {
+    color: Colors.TextPrimary,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+  },
+  emptyPlansText: {
+    color: Colors.TextMuted,
+    fontSize: FontSize.sm,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  retryBtn: {
+    marginTop: 4,
+    backgroundColor: Colors.Primary,
+    borderRadius: Radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
+
   featuresBox: {
     backgroundColor: Colors.SurfaceElevated,
     borderRadius: Radius.xl,
@@ -663,8 +964,11 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   featureIconWrap: {
-    width: 30, height: 30, borderRadius: 15,
-    alignItems: 'center', justifyContent: 'center',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   featureText: {
     flex: 1,
@@ -672,11 +976,15 @@ const styles = StyleSheet.create({
     color: Colors.TextPrimary,
   },
   lockChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
     backgroundColor: Colors.Surface,
     borderRadius: Radius.full,
-    paddingHorizontal: 7, paddingVertical: 3,
-    borderWidth: 1, borderColor: Colors.Border,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: Colors.Border,
   },
   lockChipText: {
     color: Colors.TextMuted,
@@ -684,7 +992,6 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
 
-  // Actions
   actionsBox: {
     backgroundColor: Colors.SurfaceElevated,
     borderRadius: Radius.lg,
@@ -699,8 +1006,11 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
   },
   actionIcon: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionBody: { flex: 1 },
   actionTitle: {
