@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlan } from '../../hooks/usePlan';
 import { useLanguage } from '../../hooks/useLanguage';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../../constants/theme';
-import { PRODUCT_DETAILS, getCurrentPlatform } from '../../services/subscriptionService';
+import { getCurrentPlatform } from '../../services/subscriptionService';
 import type { IAPProductId, PlanContextType } from '../../contexts/PlanContext';
 
 const { height: SCREEN_H } = Dimensions.get('window');
@@ -53,18 +53,40 @@ const PRO_FEATURES = [
 interface TriggerInfo { icon: string; title: string; subtitle: string }
 
 const TRIGGER_MESSAGES: Record<string, (t: any) => TriggerInfo> = {
-  watermark:       t => ({ icon: 'hide-source',        title: t.paywall.trigger_watermark_title,    subtitle: t.paywall.trigger_watermark_sub }),
-  hd:              t => ({ icon: 'hd',                 title: t.paywall.trigger_hd_title,           subtitle: t.paywall.trigger_hd_sub }),
-  cinematic:       t => ({ icon: 'movie-creation',     title: t.paywall.trigger_cinematic_title,    subtitle: t.paywall.trigger_cinematic_sub }),
-  hype:            t => ({ icon: 'bolt',               title: t.paywall.trigger_hype_title,         subtitle: t.paywall.trigger_hype_sub }),
-  event_limit:     t => ({ icon: 'event-busy',         title: t.paywall.trigger_event_limit_title,  subtitle: t.paywall.trigger_event_limit_sub }),
-  duration:        t => ({ icon: 'timer-off',          title: t.paywall.trigger_duration_title,     subtitle: t.paywall.trigger_duration_sub }),
-  premium_frame:   t => ({ icon: 'layers',             title: t.paywall.trigger_frame_title,        subtitle: t.paywall.trigger_frame_sub }),
-  premium_music:   t => ({ icon: 'library-music',      title: t.paywall.trigger_music_title,        subtitle: t.paywall.trigger_music_sub }),
-  frame_upload:    t => ({ icon: 'add-photo-alternate',title: t.paywall.trigger_frame_upload_title, subtitle: t.paywall.trigger_frame_upload_sub }),
-  event_logo:      t => ({ icon: 'business',           title: t.paywall.trigger_logo_title,         subtitle: t.paywall.trigger_logo_sub }),
-  generic:         t => ({ icon: 'star',               title: t.paywall.trigger_generic_title,      subtitle: t.paywall.trigger_generic_sub }),
+  watermark:       t => ({ icon: 'hide-source',         title: t.paywall.trigger_watermark_title,     subtitle: t.paywall.trigger_watermark_sub }),
+  hd:              t => ({ icon: 'hd',                  title: t.paywall.trigger_hd_title,            subtitle: t.paywall.trigger_hd_sub }),
+  cinematic:       t => ({ icon: 'movie-creation',      title: t.paywall.trigger_cinematic_title,     subtitle: t.paywall.trigger_cinematic_sub }),
+  hype:            t => ({ icon: 'bolt',                title: t.paywall.trigger_hype_title,          subtitle: t.paywall.trigger_hype_sub }),
+  event_limit:     t => ({ icon: 'event-busy',          title: t.paywall.trigger_event_limit_title,   subtitle: t.paywall.trigger_event_limit_sub }),
+  duration:        t => ({ icon: 'timer-off',           title: t.paywall.trigger_duration_title,      subtitle: t.paywall.trigger_duration_sub }),
+  premium_frame:   t => ({ icon: 'layers',              title: t.paywall.trigger_frame_title,         subtitle: t.paywall.trigger_frame_sub }),
+  premium_music:   t => ({ icon: 'library-music',       title: t.paywall.trigger_music_title,         subtitle: t.paywall.trigger_music_sub }),
+  frame_upload:    t => ({ icon: 'add-photo-alternate', title: t.paywall.trigger_frame_upload_title,  subtitle: t.paywall.trigger_frame_upload_sub }),
+  event_logo:      t => ({ icon: 'business',            title: t.paywall.trigger_logo_title,          subtitle: t.paywall.trigger_logo_sub }),
+  generic:         t => ({ icon: 'star',                title: t.paywall.trigger_generic_title,       subtitle: t.paywall.trigger_generic_sub }),
+  retry:           t => ({ icon: 'refresh',             title: t.paywall.trigger_generic_title,       subtitle: t.paywall.trigger_generic_sub }),
 };
+
+const RC_PRODUCT_MAP: Record<IAPProductId, { identifier: string; productIdentifier: string }> = {
+  spinshot_pro_monthly: {
+    identifier: '$rc_monthly',
+    productIdentifier: 'com.ironman.spinshot.app.pro.monthly',
+  },
+  spinshot_pro_annual: {
+    identifier: '$rc_annual',
+    productIdentifier: 'com.ironman.spinshot.app.pro.annual',
+  },
+};
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function getAnnualSavings(monthlyPrice: number, annualPrice: number) {
+  if (!monthlyPrice || !annualPrice) return null;
+  const yearlyMonthly = monthlyPrice * 12;
+  const savings = yearlyMonthly - annualPrice;
+  if (savings <= 0) return null;
+  return Math.round((savings / yearlyMonthly) * 100);
+}
 
 // ─── Price Skeleton ──────────────────────────────────────────────────────────
 
@@ -80,7 +102,7 @@ function PriceSkeleton({ selected }: { selected: boolean }) {
     );
     anim.start();
     return () => anim.stop();
-  }, []);
+  }, [pulse]);
 
   const bg = selected ? 'rgba(255,255,255,0.25)' : Colors.SurfaceElevated;
 
@@ -102,20 +124,18 @@ function PlanCard({
   t,
   rcPrice,
   loading,
+  savingsPercent,
 }: {
   productId: IAPProductId;
   isSelected: boolean;
   onSelect: () => void;
   scaleAnim: Animated.Value;
   t: any;
-  rcPrice?: string;
+  rcPrice: string;
   loading?: boolean;
+  savingsPercent?: number | null;
 }) {
-  const product = PRODUCT_DETAILS[productId];
   const isAnnual = productId === 'spinshot_pro_annual';
-
-  // RC live price takes precedence; static fallback shown until RC loads
-  const displayPrice = rcPrice ?? product.priceLocal;
 
   return (
     <Animated.View style={[
@@ -124,27 +144,28 @@ function PlanCard({
       { transform: [{ scale: scaleAnim }] },
     ]}>
       <Pressable onPress={onSelect} style={{ flex: 1 }}>
-        {isSelected && (
+        {isSelected ? (
           <LinearGradient
             colors={['#7C3AED', '#4F46E5']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        ) : (
+          <LinearGradient
+            colors={['#1A1740', '#12103A']}
             style={StyleSheet.absoluteFillObject}
           />
         )}
-        {!isSelected && (
-          <LinearGradient colors={['#1A1740', '#12103A']} style={StyleSheet.absoluteFillObject} />
-        )}
 
         <View style={styles.planCardContent}>
-          {isAnnual && (
+          {isAnnual ? (
             <View style={styles.bestValueBadge}>
               <LinearGradient colors={['#10B981', '#059669']} style={styles.bestValueGrad}>
                 <Text style={styles.bestValueText}>{t.paywall.best_value}</Text>
               </LinearGradient>
             </View>
-          )}
-
-          {!isAnnual && (
+          ) : (
             <View style={styles.popularBadge}>
               <LinearGradient colors={['#F59E0B', '#EF4444']} style={styles.popularBadgeGrad}>
                 <Text style={styles.popularBadgeText}>⭐ {t.paywall.most_popular}</Text>
@@ -156,33 +177,19 @@ function PlanCard({
             {isAnnual ? t.paywall.annual_label : t.paywall.monthly_label}
           </Text>
 
-          {/* Skeleton while RC prices are loading, real price once ready */}
           {loading ? (
             <PriceSkeleton selected={isSelected} />
           ) : (
             <View style={styles.priceRow}>
               <Text style={[styles.priceValue, isSelected && { color: '#fff' }]}>
-                {displayPrice}
-              </Text>
-              <Text style={[styles.pricePeriod, isSelected && { color: 'rgba(255,255,255,0.75)' }]}>
-                {product.period}
+                {rcPrice}
               </Text>
             </View>
           )}
 
-          {isAnnual && (
-            <View style={styles.trialBadge}>
-              <MaterialIcons name="celebration" size={12} color={isSelected ? '#fff' : Colors.Success} />
-              <Text style={[styles.trialBadgeText, isSelected && { color: '#fff' }]}>
-                {t.paywall.trial_badge}
-              </Text>
-            </View>
-          )}
-
-          {/* For monthly: show intl fallback when no RC price, hide when RC price is shown */}
-          {!isAnnual && !loading && !rcPrice && (
-            <Text style={[styles.priceIntl, isSelected && { color: 'rgba(255,255,255,0.6)' }]}>
-              {product.priceIntl}
+          {isAnnual && !!savingsPercent && (
+            <Text style={[styles.savingsText, isSelected && { color: '#E9FCD4' }]}>
+              Economize {savingsPercent}%
             </Text>
           )}
 
@@ -201,10 +208,24 @@ function PlanCard({
 
 export default function PaywallModal() {
   const {
-    isPaywallVisible, hidePaywall, paywallTrigger,
-    purchasePlan, restorePurchases,
-    rcPackages, rcPackagesLoading,
-  } = usePlan() as PlanContextType & { rcPackages: any[]; rcPackagesLoading: boolean };
+    isPaywallVisible,
+    hidePaywall,
+    showPaywall,
+    paywallTrigger,
+    purchasePlan,
+    restorePurchases,
+    rcPackages,
+    rcPackagesLoading,
+  } = usePlan() as PlanContextType & {
+    rcPackages: Array<{
+      identifier: string;
+      productIdentifier: string;
+      priceString: string;
+      raw?: any;
+    }>;
+    rcPackagesLoading: boolean;
+  };
+
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
 
@@ -223,35 +244,76 @@ export default function PaywallModal() {
   const triggerFn = TRIGGER_MESSAGES[paywallTrigger] ?? TRIGGER_MESSAGES.generic;
   const triggerInfo = triggerFn(t);
 
-  // Helper: find RC package by product identifier, also check RevenueCat default identifiers
-  const findRcPrice = useCallback((productId: IAPProductId): string | undefined => {
-    const rcId = productId === 'spinshot_pro_monthly' ? '$rc_monthly' : '$rc_annual';
-    const pkg = rcPackages.find(
-      p => p.productIdentifier === productId || p.identifier === rcId
+  const findRcPackage = useCallback((productId: IAPProductId) => {
+    const mapping = RC_PRODUCT_MAP[productId];
+    return rcPackages.find(
+      p =>
+        p.productIdentifier === mapping.productIdentifier ||
+        p.identifier === mapping.identifier
     );
-    return pkg?.priceString;
   }, [rcPackages]);
+
+  const monthlyPkg = findRcPackage('spinshot_pro_monthly');
+  const annualPkg = findRcPackage('spinshot_pro_annual');
+
+  const monthlyPrice = monthlyPkg?.priceString;
+  const annualPrice = annualPkg?.priceString;
+  const hasAnyPlan = !!monthlyPrice || !!annualPrice;
+
+  const savingsPercent = getAnnualSavings(
+    monthlyPkg?.raw?.product?.price ?? 0,
+    annualPkg?.raw?.product?.price ?? 0
+  );
 
   useEffect(() => {
     if (isPaywallVisible) {
       setMounted(true);
-      setSelectedProduct('spinshot_pro_annual');
+
+      if (annualPrice) {
+        setSelectedProduct('spinshot_pro_annual');
+      } else if (monthlyPrice) {
+        setSelectedProduct('spinshot_pro_monthly');
+      }
+
       setResultMsg(null);
+
       Animated.parallel([
-        Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 12, useNativeDriver: true }),
-        Animated.timing(backdropOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 65,
+          friction: 12,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true,
+        }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(slideAnim, { toValue: SHEET_H, duration: 280, useNativeDriver: true }),
-        Animated.timing(backdropOpacity, { toValue: 0, duration: 240, useNativeDriver: true }),
-      ]).start(() => { setMounted(false); setResultMsg(null); });
+        Animated.timing(slideAnim, {
+          toValue: SHEET_H,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: 240,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setMounted(false);
+        setResultMsg(null);
+      });
     }
-  }, [isPaywallVisible]);
+  }, [isPaywallVisible, annualPrice, monthlyPrice, slideAnim, backdropOpacity]);
 
   const haptic = useCallback(() => {
     if (Platform.OS !== 'web') {
-      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {}
     }
   }, []);
 
@@ -263,12 +325,19 @@ export default function PaywallModal() {
       Animated.spring(target, { toValue: 1.04, useNativeDriver: true, speed: 60 }),
       Animated.spring(target, { toValue: 1, useNativeDriver: true, speed: 40 }),
     ]).start();
-  }, []);
+  }, [haptic, monthlyScale, annualScale]);
 
   const handleSubscribe = useCallback(async () => {
+    if (!hasAnyPlan) return;
+    if (selectedProduct === 'spinshot_pro_annual' && !annualPrice) return;
+    if (selectedProduct === 'spinshot_pro_monthly' && !monthlyPrice) return;
+
     if (Platform.OS !== 'web') {
-      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
     }
+
     Animated.sequence([
       Animated.spring(ctaScale, { toValue: 0.96, useNativeDriver: true }),
       Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }),
@@ -283,22 +352,36 @@ export default function PaywallModal() {
     setPurchasing(false);
 
     if (result.success) {
-      const successText = result.isTrial
-        ? t.paywall.trial_started_msg
-        : t.paywall.subscription_active_msg;
+      const successText = t.paywall.subscription_active_msg;
       setResultMsg({ type: 'success', text: successText });
-      setTimeout(() => { hidePaywall(); setResultMsg(null); }, 1800);
+
+      setTimeout(() => {
+        hidePaywall();
+        setResultMsg(null);
+      }, 1800);
     } else {
       setResultMsg({ type: 'error', text: result.error || t.paywall.purchase_error });
     }
-  }, [selectedProduct, purchasePlan, hidePaywall, t]);
+  }, [
+    hasAnyPlan,
+    selectedProduct,
+    annualPrice,
+    monthlyPrice,
+    ctaScale,
+    purchasePlan,
+    hidePaywall,
+    t,
+  ]);
 
   const handleRestore = useCallback(async () => {
     haptic();
     setRestoring(true);
     setResultMsg(null);
+
     const result = await restorePurchases();
+
     setRestoring(false);
+
     if (result.success) {
       if (result.restored) {
         setResultMsg({ type: 'success', text: t.paywall.restore_success });
@@ -310,6 +393,11 @@ export default function PaywallModal() {
       setResultMsg({ type: 'error', text: t.paywall.restore_error });
     }
   }, [haptic, restorePurchases, hidePaywall, t]);
+
+  const handleRetry = useCallback(() => {
+    hidePaywall();
+    setTimeout(() => showPaywall('retry'), 400);
+  }, [hidePaywall, showPaywall]);
 
   if (!mounted && !isPaywallVisible) return null;
 
@@ -323,20 +411,20 @@ export default function PaywallModal() {
       statusBarTranslucent
       onRequestClose={hidePaywall}
     >
-      {/* Backdrop */}
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={hidePaywall} />
       </Animated.View>
 
-      {/* Sheet */}
-      <Animated.View style={[
-        styles.sheet,
-        {
-          height: SHEET_H + insets.bottom,
-          paddingBottom: insets.bottom + Spacing.md,
-          transform: [{ translateY: slideAnim }],
-        },
-      ]}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            height: SHEET_H + insets.bottom,
+            paddingBottom: insets.bottom + Spacing.md,
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
+      >
         <View style={styles.sheetHandle} />
 
         <Pressable style={styles.closeBtn} onPress={hidePaywall} hitSlop={12}>
@@ -344,51 +432,62 @@ export default function PaywallModal() {
         </Pressable>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-
-          {/* ── Trigger badge ── */}
           <View style={styles.triggerBadge}>
             <MaterialIcons name={triggerInfo.icon as any} size={15} color={Colors.Warning} />
             <Text style={styles.triggerText}>{triggerInfo.subtitle}</Text>
           </View>
 
-          {/* ── Hero ── */}
           <LinearGradient colors={['#7C3AED22', '#EC489922', '#7C3AED00']} style={styles.hero}>
             <Text style={styles.heroEmoji}>⚡</Text>
             <Text style={styles.heroTitle}>{t.paywall.hero_title}</Text>
             <Text style={styles.heroSub}>{t.paywall.hero_sub}</Text>
           </LinearGradient>
 
-          {/* ── Annual trial banner ── */}
-          <View style={styles.trialBannerOuter}>
-            <LinearGradient colors={['#10B98122', '#7C3AED22']} style={styles.trialBannerGrad}>
-              <MaterialIcons name="celebration" size={16} color={Colors.Success} />
-              <Text style={styles.trialBannerText}>{t.paywall.trial_banner}</Text>
-            </LinearGradient>
-          </View>
+          {rcPackagesLoading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="small" color={Colors.Primary} />
+              <Text style={styles.loadingText}>Carregando planos...</Text>
+            </View>
+          ) : !hasAnyPlan ? (
+            <View style={styles.unavailableBox}>
+              <MaterialIcons name="error-outline" size={22} color={Colors.Warning} />
+              <Text style={styles.unavailableTitle}>Compras indisponíveis</Text>
+              <Text style={styles.unavailableText}>
+                Compras indisponíveis neste dispositivo. Instale o app pela Play Store ou App Store para testar.
+              </Text>
+              <Pressable style={styles.retryBtn} onPress={handleRetry}>
+                <Text style={styles.retryText}>Tentar novamente</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.plansRow}>
+              {monthlyPrice && (
+                <PlanCard
+                  productId="spinshot_pro_monthly"
+                  isSelected={selectedProduct === 'spinshot_pro_monthly'}
+                  onSelect={() => selectProduct('spinshot_pro_monthly')}
+                  scaleAnim={monthlyScale}
+                  t={t}
+                  loading={false}
+                  rcPrice={monthlyPrice}
+                />
+              )}
 
-          {/* ── Plan Cards — prices from RC SDK or static fallback ── */}
-          <View style={styles.plansRow}>
-            <PlanCard
-              productId="spinshot_pro_monthly"
-              isSelected={selectedProduct === 'spinshot_pro_monthly'}
-              onSelect={() => selectProduct('spinshot_pro_monthly')}
-              scaleAnim={monthlyScale}
-              t={t}
-              loading={rcPackagesLoading}
-              rcPrice={findRcPrice('spinshot_pro_monthly')}
-            />
-            <PlanCard
-              productId="spinshot_pro_annual"
-              isSelected={selectedProduct === 'spinshot_pro_annual'}
-              onSelect={() => selectProduct('spinshot_pro_annual')}
-              scaleAnim={annualScale}
-              t={t}
-              loading={rcPackagesLoading}
-              rcPrice={findRcPrice('spinshot_pro_annual')}
-            />
-          </View>
+              {annualPrice && (
+                <PlanCard
+                  productId="spinshot_pro_annual"
+                  isSelected={selectedProduct === 'spinshot_pro_annual'}
+                  onSelect={() => selectProduct('spinshot_pro_annual')}
+                  scaleAnim={annualScale}
+                  t={t}
+                  loading={false}
+                  rcPrice={annualPrice}
+                  savingsPercent={savingsPercent}
+                />
+              )}
+            </View>
+          )}
 
-          {/* ── Feature list ── */}
           <View style={styles.featuresBox}>
             <Text style={styles.featuresTitle}>{t.paywall.included_title}</Text>
             {PRO_FEATURES.map((f, i) => (
@@ -401,54 +500,54 @@ export default function PaywallModal() {
             ))}
           </View>
 
-          {/* ── Result message ── */}
           {resultMsg ? (
-            <View style={[
-              styles.resultMsg,
-              {
-                backgroundColor: resultMsg.type === 'success' ? Colors.Success + '22' : Colors.Error + '22',
-                borderColor:     resultMsg.type === 'success' ? Colors.Success + '55' : Colors.Error + '55',
-              },
-            ]}>
+            <View
+              style={[
+                styles.resultMsg,
+                {
+                  backgroundColor: resultMsg.type === 'success' ? Colors.Success + '22' : Colors.Error + '22',
+                  borderColor: resultMsg.type === 'success' ? Colors.Success + '55' : Colors.Error + '55',
+                },
+              ]}
+            >
               <MaterialIcons
                 name={resultMsg.type === 'success' ? 'check-circle' : 'error-outline'}
                 size={16}
                 color={resultMsg.type === 'success' ? Colors.Success : Colors.Error}
               />
-              <Text style={[
-                styles.resultMsgText,
-                { color: resultMsg.type === 'success' ? Colors.Success : Colors.Error },
-              ]}>
+              <Text
+                style={[
+                  styles.resultMsgText,
+                  { color: resultMsg.type === 'success' ? Colors.Success : Colors.Error },
+                ]}
+              >
                 {resultMsg.text}
               </Text>
             </View>
           ) : null}
 
-          {/* ── Main CTA ── */}
           <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-            <Pressable onPress={handleSubscribe} disabled={isProcessing}>
+            <Pressable onPress={handleSubscribe} disabled={isProcessing || !hasAnyPlan}>
               <LinearGradient
                 colors={['#C084FC', '#8B5CF6', '#4F46E5']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                style={[styles.ctaBtn, isProcessing && { opacity: 0.75 }]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.ctaBtn, (isProcessing || !hasAnyPlan) && { opacity: 0.75 }]}
               >
-                {purchasing ? (
+                {!hasAnyPlan ? (
+                  <Text style={styles.ctaBtnText}>Indisponível</Text>
+                ) : purchasing ? (
                   <>
                     <ActivityIndicator size="small" color="#fff" />
                     <Text style={styles.ctaBtnText}>{t.paywall.processing}</Text>
-                  </>
-                ) : rcPackagesLoading ? (
-                  <>
-                    <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
-                    <Text style={[styles.ctaBtnText, { opacity: 0.8 }]}>{t.common.loading}</Text>
                   </>
                 ) : (
                   <>
                     <MaterialIcons name="star" size={20} color="#fff" />
                     <Text style={styles.ctaBtnText}>
                       {selectedProduct === 'spinshot_pro_annual'
-                        ? t.paywall.cta_annual
-                        : t.paywall.cta_monthly}
+                        ? 'Assinar anual (melhor valor)'
+                        : 'Assinar mensal'}
                     </Text>
                   </>
                 )}
@@ -458,7 +557,6 @@ export default function PaywallModal() {
 
           <Text style={styles.cancelNote}>{t.paywall.cancel_note}</Text>
 
-          {/* ── Free plan info ── */}
           <View style={styles.freePlanBox}>
             <Text style={styles.freePlanTitle}>{t.paywall.free_plan_title}</Text>
             <View style={styles.freePlanRow}>
@@ -471,19 +569,23 @@ export default function PaywallModal() {
                   </View>
                 ))}
               </View>
+
               <View style={styles.freePlanBlocked}>
-                <Text style={[styles.freePlanSectionLabel, { color: Colors.Error }]}>{t.paywall.free_blocked}</Text>
+                <Text style={[styles.freePlanSectionLabel, { color: Colors.Error }]}>
+                  {t.paywall.free_blocked}
+                </Text>
                 {FREE_BLOCKS.slice(0, 4).map((f, i) => (
                   <View key={i} style={styles.miniFeatureRow}>
                     <MaterialIcons name="lock" size={11} color={Colors.Error + '88'} />
-                    <Text style={[styles.miniFeatureText, { color: Colors.TextMuted }]}>{(t.paywall as any)['free_' + f.label]}</Text>
+                    <Text style={[styles.miniFeatureText, { color: Colors.TextMuted }]}>
+                      {(t.paywall as any)['free_' + f.label]}
+                    </Text>
                   </View>
                 ))}
               </View>
             </View>
           </View>
 
-          {/* ── Restore ── */}
           <Pressable
             onPress={handleRestore}
             disabled={isProcessing}
@@ -502,165 +604,385 @@ export default function PaywallModal() {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(7,5,15,0.82)' },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(7,5,15,0.82)',
+  },
 
   sheet: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: '#13112E',
-    borderTopLeftRadius: Radius.xxl, borderTopRightRadius: Radius.xxl,
-    borderWidth: 1, borderBottomWidth: 0, borderColor: Colors.Border,
-    shadowColor: '#000', shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.6, shadowRadius: 30, elevation: 30,
+    borderTopLeftRadius: Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: Colors.Border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 30,
+    elevation: 30,
   },
   sheetHandle: {
-    alignSelf: 'center', width: 40, height: 4,
-    borderRadius: 2, backgroundColor: Colors.Border, marginTop: 12, marginBottom: 4,
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.Border,
+    marginTop: 12,
+    marginBottom: 4,
   },
   closeBtn: {
-    position: 'absolute', top: 20, right: Spacing.lg, zIndex: 10,
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.SurfaceElevated, borderWidth: 1, borderColor: Colors.Border,
+    position: 'absolute',
+    top: 20,
+    right: Spacing.lg,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.SurfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.Border,
   },
-  scrollContent: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, gap: Spacing.md, paddingBottom: Spacing.lg },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    gap: Spacing.md,
+    paddingBottom: Spacing.lg,
+  },
 
   triggerBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     alignSelf: 'center',
     backgroundColor: Colors.Warning + '18',
-    borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 5,
-    borderWidth: 1, borderColor: Colors.Warning + '33',
+    borderRadius: Radius.full,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: Colors.Warning + '33',
   },
-  triggerText: { color: Colors.Warning, fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  triggerText: {
+    color: Colors.Warning,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
 
   hero: {
-    alignItems: 'center', gap: Spacing.xs,
-    paddingVertical: Spacing.md, borderRadius: Radius.xl,
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
+    borderRadius: Radius.xl,
   },
   heroEmoji: { fontSize: 32 },
   heroTitle: {
-    fontSize: FontSize.xl, fontWeight: FontWeight.extrabold,
-    color: Colors.TextPrimary, textAlign: 'center', lineHeight: 28,
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.extrabold,
+    color: Colors.TextPrimary,
+    textAlign: 'center',
+    lineHeight: 28,
   },
-  heroSub: { fontSize: FontSize.sm, color: Colors.TextSubtle, textAlign: 'center', lineHeight: 20 },
-
-  trialBannerOuter: { borderRadius: Radius.lg, overflow: 'hidden' },
-  trialBannerGrad: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: Spacing.md, paddingVertical: 10,
-    borderWidth: 1, borderColor: Colors.Success + '33', borderRadius: Radius.lg,
+  heroSub: {
+    fontSize: FontSize.sm,
+    color: Colors.TextSubtle,
+    textAlign: 'center',
+    lineHeight: 20,
   },
-  trialBannerText: { color: Colors.Success, fontSize: FontSize.sm, fontWeight: FontWeight.semibold, flex: 1, lineHeight: 20 },
 
-  plansRow: { flexDirection: 'row', gap: Spacing.sm },
+  plansRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
 
-  // Skeleton shapes
   skeletonPrice: {
-    height: 22, width: 78,
+    height: 22,
+    width: 78,
     borderRadius: 6,
     marginRight: 4,
   },
   skeletonPeriod: {
-    height: 12, width: 28,
+    height: 12,
+    width: 28,
     borderRadius: 4,
     alignSelf: 'flex-end',
     marginBottom: 3,
   },
 
   planCardWrap: {
-    flex: 1, borderRadius: Radius.xl,
-    borderWidth: 1.5, borderColor: Colors.Border,
-    overflow: 'hidden', minHeight: 160,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
+    flex: 1,
+    borderRadius: Radius.xl,
+    borderWidth: 1.5,
+    borderColor: Colors.Border,
+    overflow: 'hidden',
+    minHeight: 160,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
   planCardWrapSelected: {
     borderColor: Colors.Primary,
-    shadowColor: Colors.Primary, shadowOpacity: 0.5, shadowRadius: 20, elevation: 16,
+    shadowColor: Colors.Primary,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 16,
   },
-  planCardContent: { padding: Spacing.md, gap: 6, flex: 1 },
-
-  bestValueBadge: { alignSelf: 'flex-start', borderRadius: Radius.full, overflow: 'hidden', marginBottom: 2 },
-  bestValueGrad: { paddingHorizontal: 9, paddingVertical: 3 },
-  bestValueText: { color: '#fff', fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5 },
-
-  popularBadge: { alignSelf: 'flex-start', borderRadius: Radius.full, overflow: 'hidden', marginBottom: 2 },
-  popularBadgeGrad: { paddingHorizontal: 9, paddingVertical: 3 },
-  popularBadgeText: { color: '#fff', fontSize: 9, fontWeight: FontWeight.bold },
-
-  planName: { color: Colors.TextPrimary, fontSize: FontSize.sm, fontWeight: FontWeight.bold },
-
-  priceRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
-  priceValue: { color: Colors.TextPrimary, fontSize: FontSize.lg, fontWeight: FontWeight.extrabold, lineHeight: 28 },
-  pricePeriod: { color: Colors.TextSubtle, fontSize: 10, paddingBottom: 3 },
-  priceIntl: { color: Colors.TextMuted, fontSize: 10 },
-
-  trialBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: Colors.Success + '18', borderRadius: Radius.full,
-    paddingHorizontal: 7, paddingVertical: 3,
-    borderWidth: 1, borderColor: Colors.Success + '33',
-    alignSelf: 'flex-start', marginTop: 2,
+  planCardContent: {
+    padding: Spacing.md,
+    gap: 6,
+    flex: 1,
   },
-  trialBadgeText: { color: Colors.Success, fontSize: 9, fontWeight: FontWeight.semibold },
 
-  selectedCheck: { position: 'absolute', top: 10, right: 10 },
-
-  featuresBox: {
-    backgroundColor: Colors.SurfaceElevated, borderRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.Border,
-    padding: Spacing.md, gap: 8,
-  },
-  featuresTitle: {
-    fontSize: FontSize.xs, fontWeight: FontWeight.semibold,
-    color: Colors.TextMuted, textTransform: 'uppercase', letterSpacing: 0.8,
+  bestValueBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: Radius.full,
+    overflow: 'hidden',
     marginBottom: 2,
   },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  featureIconWrap: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: Colors.Success + '18',
-    alignItems: 'center', justifyContent: 'center',
+  bestValueGrad: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
   },
-  featureText: { color: Colors.TextSecondary, fontSize: FontSize.xs, flex: 1, lineHeight: 17 },
+  bestValueText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.5,
+  },
+
+  popularBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: Radius.full,
+    overflow: 'hidden',
+    marginBottom: 2,
+  },
+  popularBadgeGrad: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  popularBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+  },
+
+  planName: {
+    color: Colors.TextPrimary,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
+
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  priceValue: {
+    color: Colors.TextPrimary,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.extrabold,
+    lineHeight: 28,
+  },
+  savingsText: {
+    color: Colors.Success,
+    fontSize: 11,
+    fontWeight: FontWeight.bold,
+    marginTop: 2,
+  },
+
+  selectedCheck: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+  },
+
+  loadingBox: {
+    alignItems: 'center',
+    gap: 10,
+    padding: 20,
+  },
+  loadingText: {
+    color: Colors.TextMuted,
+    fontSize: 12,
+  },
+
+  unavailableBox: {
+    backgroundColor: Colors.SurfaceElevated,
+    borderRadius: Radius.xl,
+    padding: 20,
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+  },
+  unavailableTitle: {
+    color: Colors.TextPrimary,
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.md,
+  },
+  unavailableText: {
+    color: Colors.TextMuted,
+    textAlign: 'center',
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+  },
+  retryBtn: {
+    marginTop: 10,
+    backgroundColor: Colors.Primary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  retryText: {
+    color: '#fff',
+    fontWeight: FontWeight.bold,
+  },
+
+  featuresBox: {
+    backgroundColor: Colors.SurfaceElevated,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    padding: Spacing.md,
+    gap: 8,
+  },
+  featuresTitle: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.TextMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  featureIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.Success + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureText: {
+    color: Colors.TextSecondary,
+    fontSize: FontSize.xs,
+    flex: 1,
+    lineHeight: 17,
+  },
 
   resultMsg: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderRadius: Radius.md, borderWidth: 1,
-    paddingHorizontal: Spacing.md, paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
   },
-  resultMsgText: { flex: 1, fontSize: FontSize.xs, fontWeight: FontWeight.medium, lineHeight: 18 },
+  resultMsgText: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.medium,
+    lineHeight: 18,
+  },
 
   ctaBtn: {
-    height: 62, borderRadius: Radius.full,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    shadowColor: Colors.Primary, shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6, shadowRadius: 20, elevation: 12,
+    height: 62,
+    borderRadius: Radius.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    shadowColor: Colors.Primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 12,
   },
-  ctaBtnText: { color: '#fff', fontSize: FontSize.lg, fontWeight: FontWeight.bold },
+  ctaBtnText: {
+    color: '#fff',
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+  },
 
-  cancelNote: { textAlign: 'center', color: Colors.TextMuted, fontSize: FontSize.xs },
+  cancelNote: {
+    textAlign: 'center',
+    color: Colors.TextMuted,
+    fontSize: FontSize.xs,
+  },
 
   freePlanBox: {
-    backgroundColor: Colors.Surface, borderRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.Border, padding: Spacing.md, gap: Spacing.sm,
+    backgroundColor: Colors.Surface,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    padding: Spacing.md,
+    gap: Spacing.sm,
   },
   freePlanTitle: {
-    fontSize: FontSize.xs, fontWeight: FontWeight.semibold,
-    color: Colors.TextMuted, textTransform: 'uppercase', letterSpacing: 0.8,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.TextMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
-  freePlanRow: { flexDirection: 'row', gap: Spacing.md },
-  freePlanAllowed: { flex: 1, gap: 5 },
-  freePlanBlocked: { flex: 1, gap: 5 },
+  freePlanRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  freePlanAllowed: {
+    flex: 1,
+    gap: 5,
+  },
+  freePlanBlocked: {
+    flex: 1,
+    gap: 5,
+  },
   freePlanSectionLabel: {
-    fontSize: 10, fontWeight: FontWeight.semibold, color: Colors.TextSubtle,
-    marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5,
+    fontSize: 10,
+    fontWeight: FontWeight.semibold,
+    color: Colors.TextSubtle,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  miniFeatureRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  miniFeatureText: { color: Colors.TextSubtle, fontSize: 10, flex: 1, lineHeight: 15 },
+  miniFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  miniFeatureText: {
+    color: Colors.TextSubtle,
+    fontSize: 10,
+    flex: 1,
+    lineHeight: 15,
+  },
 
-  restoreBtn: { alignSelf: 'center', padding: 4 },
-  restoreText: { color: Colors.TextMuted, fontSize: FontSize.xs, textDecorationLine: 'underline' },
+  restoreBtn: {
+    alignSelf: 'center',
+    padding: 4,
+  },
+  restoreText: {
+    color: Colors.TextMuted,
+    fontSize: FontSize.xs,
+    textDecorationLine: 'underline',
+  },
 
-  legalNote: { textAlign: 'center', color: Colors.TextMuted, fontSize: 9, lineHeight: 14 },
+  legalNote: {
+    textAlign: 'center',
+    color: Colors.TextMuted,
+    fontSize: 9,
+    lineHeight: 14,
+  },
 });

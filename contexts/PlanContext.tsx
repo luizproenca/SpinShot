@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useEffect, useCallback, useRef, useContext } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +11,7 @@ import { AuthContext } from './AuthContext';
 export type PlanId = 'free' | 'pro';
 export type SubscriptionPlan = 'free' | 'pro_monthly' | 'pro_annual';
 export type SubscriptionStatus = 'inactive' | 'active' | 'trial' | 'expired' | 'cancelled';
+export type IAPProductId = 'spinshot_pro_monthly' | 'spinshot_pro_annual';
 
 export interface SubscriptionState {
   plan: SubscriptionPlan;
@@ -49,49 +49,14 @@ export interface PlanContextType {
   hidePaywall: () => void;
 
   // IAP actions
-  purchasePlan: (productId: IAPProductId, platform: 'ios' | 'android' | 'web') => Promise<{ success: boolean; isTrial: boolean; error?: string }>;
+  purchasePlan: (
+    productId: IAPProductId,
+    platform: 'ios' | 'android' | 'web'
+  ) => Promise<{ success: boolean; isTrial: boolean; error?: string }>;
   restorePurchases: () => Promise<{ success: boolean; restored: boolean }>;
   cancelSubscription: () => Promise<void>;
   refreshSubscription: () => Promise<void>;
 }
-
-export type IAPProductId = 'spinshot_pro_monthly' | 'spinshot_pro_annual';
-
-export interface IAPProduct {
-  id: IAPProductId;
-  plan: 'pro_monthly' | 'pro_annual';
-  labelKey: string;
-  priceLocal: string;
-  priceIntl: string;
-  periodKey: string;
-  hasTrial: boolean;
-  trialDays: number;
-  badgeKey?: string;
-}
-
-export const IAP_PRODUCTS: IAPProduct[] = [
-  {
-    id: 'spinshot_pro_monthly',
-    plan: 'pro_monthly',
-    labelKey: 'monthly',
-    priceLocal: 'R$ 79,90',
-    priceIntl: 'US$ 19.90',
-    periodKey: 'month',
-    hasTrial: false,
-    trialDays: 0,
-  },
-  {
-    id: 'spinshot_pro_annual',
-    plan: 'pro_annual',
-    labelKey: 'annual',
-    priceLocal: 'R$ 709,90',
-    priceIntl: 'US$ 199.90',
-    periodKey: 'year',
-    hasTrial: true,
-    trialDays: 30,
-    badgeKey: 'bestValue',
-  },
-];
 
 // ─── Plan Feature Rules ──────────────────────────────────────────────────────
 
@@ -144,38 +109,48 @@ export const PlanContext = createContext<PlanContextType | undefined>(undefined)
 
 const STORAGE_KEYS = {
   subscription: '@spinshot:subscription_v2',
-  onboarding:   '@spinshot:onboarding_seen',
+  onboarding: '@spinshot:onboarding_seen',
 };
 
 const DEFAULT_SUBSCRIPTION: SubscriptionState = {
-  plan:          'free',
-  status:        'inactive',
-  isPro:         false,
-  isTrial:       false,
-  expiresAt:     null,
-  trialStartAt:  null,
+  plan: 'free',
+  status: 'inactive',
+  isPro: false,
+  isTrial: false,
+  expiresAt: null,
+  trialStartAt: null,
   lastCheckedAt: null,
 };
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 
+const RC_PRODUCT_MAP: Record<IAPProductId, { identifiers: string[]; productIdentifier: string }> = {
+  spinshot_pro_monthly: {
+    identifiers: ['$rc_monthly', 'pro_monthly'],
+    productIdentifier: 'com.ironman.spinshot.app.pro.monthly',
+  },
+  spinshot_pro_annual: {
+    identifiers: ['$rc_annual', 'pro_annual'],
+    productIdentifier: 'com.ironman.spinshot.app.pro.annual',
+  },
+};
+
 export function PlanProvider({ children }: { children: React.ReactNode }) {
   const authCtx = useContext(AuthContext);
   const authUser = authCtx?.user;
 
-  const [subscription, setSubscription]           = useState<SubscriptionState>(DEFAULT_SUBSCRIPTION);
+  const [subscription, setSubscription] = useState<SubscriptionState>(DEFAULT_SUBSCRIPTION);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
-  const [isPaywallVisible, setPaywallVisible]      = useState(false);
-  const [paywallTrigger, setPaywallTrigger]        = useState('');
-  const [loaded, setLoaded]                        = useState(false);
+  const [isPaywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTrigger, setPaywallTrigger] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
-  const [rcPackages, setRcPackages]                = useState<RC.RCPackage[]>([]);
-  const [rcPackagesLoading, setRcPackagesLoading]  = useState(false);
+  const [rcPackages, setRcPackages] = useState<RC.RCPackage[]>([]);
+  const [rcPackagesLoading, setRcPackagesLoading] = useState(false);
 
-  const refreshTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rcListenerUnsubRef = useRef<(() => void) | null>(null);
-  // Track whether initial refresh already ran (avoid loop)
-  const didInitRefresh     = useRef(false);
+  const didInitRefresh = useRef(false);
 
   // ── Load cache ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -185,54 +160,65 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(STORAGE_KEYS.subscription),
           AsyncStorage.getItem(STORAGE_KEYS.onboarding),
         ]);
+
         if (cachedSub) {
           const parsed: SubscriptionState = JSON.parse(cachedSub);
           setSubscription(parsed);
         }
-        if (seenOnboarding === 'true') setHasSeenOnboarding(true);
+
+        if (seenOnboarding === 'true') {
+          setHasSeenOnboarding(true);
+        }
       } catch {}
+
       setLoaded(true);
     })();
   }, []);
 
   // ── Persist cache ─────────────────────────────────────────────────────
   const persistSubscription = useCallback(async (sub: SubscriptionState) => {
-    try { await AsyncStorage.setItem(STORAGE_KEYS.subscription, JSON.stringify(sub)); } catch {}
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.subscription, JSON.stringify(sub));
+    } catch {}
   }, []);
 
   // ── Apply state from backend response ────────────────────────────────
   const applySubscriptionData = useCallback(async (data: any) => {
-    const plan   = data.plan   ?? 'free';
+    const plan = data.plan ?? 'free';
     const status = data.status ?? 'inactive';
-    const isPro  = data.isPro !== undefined
+    const isPro = data.isPro !== undefined
       ? Boolean(data.isPro)
       : (status === 'active' || status === 'trial') && plan !== 'free';
     const isTrial = data.isTrial !== undefined ? Boolean(data.isTrial) : status === 'trial';
+
     const newSub: SubscriptionState = {
       plan,
       status,
       isPro,
       isTrial,
-      expiresAt:     data.expiresAt    ?? null,
-      trialStartAt:  data.trialStartAt ?? null,
+      expiresAt: data.expiresAt ?? null,
+      trialStartAt: data.trialStartAt ?? null,
       lastCheckedAt: Date.now(),
     };
+
     setSubscription(newSub);
     await persistSubscription(newSub);
     return newSub;
   }, [persistSubscription]);
 
   // ── Refresh from backend ──────────────────────────────────────────────
-  // Guard: only runs when user is authenticated; silently skips otherwise.
   const refreshSubscription = useCallback(async () => {
     try {
       const supabase = getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return; // not logged in yet — skip silently
-    } catch { return; }
+      if (!session) return;
+    } catch {
+      return;
+    }
 
     try {
       setSubscriptionLoading(true);
+
       const supabase = getSupabaseClient();
       const { data, error } = await supabase.functions.invoke('validate-purchase', {
         body: { action: 'check' },
@@ -241,7 +227,9 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       if (error) {
         let msg = error.message;
         if (error instanceof FunctionsHttpError) {
-          try { msg = await error.context?.text() ?? msg; } catch {}
+          try {
+            msg = await error.context?.text() ?? msg;
+          } catch {}
         }
         console.warn('[PlanContext] refreshSubscription error:', msg);
         return;
@@ -257,13 +245,21 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
 
   // ── Load RC packages ──────────────────────────────────────────────────
   const loadRCPackages = useCallback(async () => {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web') {
+      setRcPackages([]);
+      setRcPackagesLoading(false);
+      return;
+    }
+
     setRcPackagesLoading(true);
+
     try {
       const pkgs = await RC.getOfferings();
-      if (pkgs.length > 0) setRcPackages(pkgs);
+      console.log('[PlanContext] RC offerings:', JSON.stringify(pkgs, null, 2));
+      setRcPackages(pkgs);
     } catch (e) {
       console.warn('[PlanContext] loadRCPackages error:', e);
+      setRcPackages([]);
     } finally {
       setRcPackagesLoading(false);
     }
@@ -272,22 +268,32 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
   // ── CustomerInfo listener ─────────────────────────────────────────────
   const setupRCListener = useCallback(() => {
     if (Platform.OS === 'web') return;
+
     rcListenerUnsubRef.current = RC.addCustomerInfoListener(async (ci) => {
-      const isProRC  = RC.isProActive(ci);
+      const isProRC = RC.isProActive(ci);
       const supabase = getSupabaseClient();
+
       try {
         const { data } = await supabase.functions.invoke('validate-purchase', {
-          body: { action: 'rc_validate', customerInfoJson: ci.raw, platform: Platform.OS },
+          body: {
+            action: 'rc_validate',
+            customerInfoJson: ci.raw,
+            platform: Platform.OS,
+          },
         });
-        if (data) await applySubscriptionData(data);
+
+        if (data) {
+          await applySubscriptionData(data);
+        }
       } catch {
         const newSub: SubscriptionState = {
           ...DEFAULT_SUBSCRIPTION,
-          isPro:         isProRC,
-          plan:          isProRC ? 'pro_monthly' : 'free',
-          status:        isProRC ? 'active' : 'inactive',
+          isPro: isProRC,
+          plan: isProRC ? 'pro_monthly' : 'free',
+          status: isProRC ? 'active' : 'inactive',
           lastCheckedAt: Date.now(),
         };
+
         setSubscription(newSub);
         await persistSubscription(newSub);
       }
@@ -300,28 +306,28 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       RC.initRevenueCat(authUser.id).catch(() => {});
     } else {
       RC.logOutRevenueCat().catch(() => {});
+      setRcPackages([]);
     }
   }, [authUser?.id]);
 
   // ── One-time init after cache loads ──────────────────────────────────
-  // Uses a ref flag so this only fires once, avoiding infinite loops.
   useEffect(() => {
     if (!loaded || didInitRefresh.current) return;
     didInitRefresh.current = true;
 
-    // Fire-and-forget; auth guard inside refreshSubscription handles unauth case
     refreshSubscription();
     setupRCListener();
     loadRCPackages();
 
-    // Periodic refresh
-    refreshTimerRef.current = setInterval(refreshSubscription, REFRESH_INTERVAL_MS);
+    refreshTimerRef.current = setInterval(() => {
+      refreshSubscription();
+    }, REFRESH_INTERVAL_MS);
 
     return () => {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
       rcListenerUnsubRef.current?.();
     };
-  }, [loaded]); // intentionally only [loaded] — functions are stable refs via useCallback
+  }, [loaded, refreshSubscription, setupRCListener, loadRCPackages]);
 
   // ── Purchase via RevenueCat SDK ───────────────────────────────────────
   const purchasePlan = useCallback(async (
@@ -329,47 +335,65 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     platform: 'ios' | 'android' | 'web',
   ): Promise<{ success: boolean; isTrial: boolean; error?: string }> => {
     setSubscriptionLoading(true);
+
     try {
       if (platform === 'web') {
         return await webPurchaseFallback(productId, platform, applySubscriptionData);
       }
 
       const packages = rcPackages.length > 0 ? rcPackages : await RC.getOfferings();
+      const mapping = RC_PRODUCT_MAP[productId];
+
       const pkg = packages.find(p =>
-        p.productIdentifier === productId ||
-        (productId === 'spinshot_pro_monthly' && p.identifier === '$rc_monthly') ||
-        (productId === 'spinshot_pro_annual'  && p.identifier === '$rc_annual')
+        p.productIdentifier === mapping.productIdentifier ||
+        mapping.identifiers.includes(p.identifier)
       );
 
       if (!pkg) {
-        console.warn('[PlanContext] RC package not found for:', productId, '— falling back to backend activate');
-        return await webPurchaseFallback(productId, platform, applySubscriptionData);
+        return {
+          success: false,
+          isTrial: false,
+          error: 'Plano não disponível na loja.',
+        };
       }
 
       const result = await RC.purchasePackage(pkg);
 
-      if (result.isCancelled) return { success: false, isTrial: false, error: 'cancelled' };
+      if (result.isCancelled) {
+        return { success: false, isTrial: false, error: 'cancelled' };
+      }
+
       if (!result.success || !result.customerInfo) {
-        return { success: false, isTrial: false, error: result.error ?? 'Purchase failed' };
+        return {
+          success: false,
+          isTrial: false,
+          error: result.error ?? 'Purchase failed',
+        };
       }
 
       const supabase = getSupabaseClient();
       const { data, error: fnError } = await supabase.functions.invoke('validate-purchase', {
-        body: { action: 'rc_validate', customerInfoJson: result.customerInfo.raw, platform },
+        body: {
+          action: 'rc_validate',
+          customerInfoJson: result.customerInfo.raw,
+          platform,
+        },
       });
 
       if (fnError) {
         const newSub: SubscriptionState = {
-          plan:          productId === 'spinshot_pro_annual' ? 'pro_annual' : 'pro_monthly',
-          status:        'active',
-          isPro:         true,
-          isTrial:       false,
-          expiresAt:     result.customerInfo.latestExpirationDate,
-          trialStartAt:  null,
+          plan: productId === 'spinshot_pro_annual' ? 'pro_annual' : 'pro_monthly',
+          status: 'active',
+          isPro: true,
+          isTrial: false,
+          expiresAt: result.customerInfo.latestExpirationDate,
+          trialStartAt: null,
           lastCheckedAt: Date.now(),
         };
+
         setSubscription(newSub);
         await persistSubscription(newSub);
+
         return { success: true, isTrial: false };
       }
 
@@ -385,13 +409,15 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
   // ── Restore via RevenueCat SDK ────────────────────────────────────────
   const restorePurchases = useCallback(async (): Promise<{ success: boolean; restored: boolean }> => {
     setSubscriptionLoading(true);
+
     try {
       if (Platform.OS !== 'web') {
         const result = await RC.restorePurchases();
 
         if (result.success && result.customerInfo) {
-          const isProRC  = RC.isProActive(result.customerInfo);
+          const isProRC = RC.isProActive(result.customerInfo);
           const supabase = getSupabaseClient();
+
           const { data } = await supabase.functions.invoke('validate-purchase', {
             body: { action: 'restore', platform: Platform.OS },
           });
@@ -404,11 +430,12 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
           if (isProRC) {
             const newSub: SubscriptionState = {
               ...DEFAULT_SUBSCRIPTION,
-              isPro:         true,
-              plan:          'pro_monthly',
-              status:        'active',
+              isPro: true,
+              plan: 'pro_monthly',
+              status: 'active',
               lastCheckedAt: Date.now(),
             };
+
             setSubscription(newSub);
             await persistSubscription(newSub);
           }
@@ -416,12 +443,15 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
           return { success: true, restored: isProRC };
         }
 
-        if (!result.success) return { success: false, restored: false };
+        if (!result.success) {
+          return { success: false, restored: false };
+        }
+
         return { success: true, restored: false };
-      } else {
-        await refreshSubscription();
-        return { success: true, restored: subscription.isPro };
       }
+
+      await refreshSubscription();
+      return { success: true, restored: subscription.isPro };
     } catch {
       return { success: false, restored: false };
     } finally {
@@ -433,7 +463,10 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
   const cancelSubscription = useCallback(async () => {
     try {
       const supabase = getSupabaseClient();
-      await supabase.functions.invoke('validate-purchase', { body: { action: 'cancel' } });
+      await supabase.functions.invoke('validate-purchase', {
+        body: { action: 'cancel' },
+      });
+
       await refreshSubscription();
     } catch (e) {
       console.warn('[PlanContext] cancelSubscription error:', e);
@@ -443,7 +476,9 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
   // ── Onboarding ────────────────────────────────────────────────────────
   const markOnboardingSeen = useCallback(async () => {
     setHasSeenOnboarding(true);
-    try { await AsyncStorage.setItem(STORAGE_KEYS.onboarding, 'true'); } catch {}
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.onboarding, 'true');
+    } catch {}
   }, []);
 
   // ── Paywall ───────────────────────────────────────────────────────────
@@ -466,33 +501,40 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
   const isPro = subscription.isPro;
 
   return (
-    <PlanContext.Provider value={{
-      subscription,
-      isPro,
-      isTrial:            subscription.isTrial,
-      subscriptionLoading,
-      rcPackages,
-      rcPackagesLoading,
-      plan:               isPro ? 'pro' : 'free',
-      isPremium:          isPro,
-      setPlan,
-      hasSeenOnboarding,
-      markOnboardingSeen,
-      isPaywallVisible,
-      paywallTrigger,
-      showPaywall,
-      hidePaywall,
-      purchasePlan,
-      restorePurchases,
-      cancelSubscription,
-      refreshSubscription,
-    }}>
+    <PlanContext.Provider
+      value={{
+        subscription,
+        isPro,
+        isTrial: subscription.isTrial,
+        subscriptionLoading,
+
+        rcPackages,
+        rcPackagesLoading,
+
+        plan: isPro ? 'pro' : 'free',
+        isPremium: isPro,
+        setPlan,
+
+        hasSeenOnboarding,
+        markOnboardingSeen,
+
+        isPaywallVisible,
+        paywallTrigger,
+        showPaywall,
+        hidePaywall,
+
+        purchasePlan,
+        restorePurchases,
+        cancelSubscription,
+        refreshSubscription,
+      }}
+    >
       {children}
     </PlanContext.Provider>
   );
 }
 
-// ─── Web / fallback purchase ──────────────────────────────────────────────────
+// ─── Web / fallback purchase ─────────────────────────────────────────────────
 
 async function webPurchaseFallback(
   productId: IAPProductId,
@@ -501,9 +543,10 @@ async function webPurchaseFallback(
 ): Promise<{ success: boolean; isTrial: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient();
+
     const { data, error } = await supabase.functions.invoke('validate-purchase', {
       body: {
-        action:        'activate',
+        action: 'activate',
         productId,
         platform,
         purchaseToken: `web_token_${Date.now()}`,
@@ -513,7 +556,9 @@ async function webPurchaseFallback(
     if (error) {
       let msg = error.message;
       if (error instanceof FunctionsHttpError) {
-        try { msg = await error.context?.text() ?? msg; } catch {}
+        try {
+          msg = await error.context?.text() ?? msg;
+        } catch {}
       }
       return { success: false, isTrial: false, error: msg };
     }
@@ -524,5 +569,3 @@ async function webPurchaseFallback(
     return { success: false, isTrial: false, error: e.message };
   }
 }
-
-

@@ -39,8 +39,8 @@ export const RC_ENTITLEMENT_ID = 'pro';
 export const RC_OFFERING_ID    = 'default';
 
 export const RC_PRODUCT_IDS = {
-  monthly: 'spinshot_pro_monthly',
-  annual:  'spinshot_pro_annual',
+  monthly: 'pro_monthly',
+  annual:  'pro_annual',
 } as const;
 
 // ─── No-op stubs for web ──────────────────────────────────────────────────────

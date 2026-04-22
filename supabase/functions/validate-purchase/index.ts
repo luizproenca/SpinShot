@@ -230,8 +230,8 @@ serve(async (req: Request) => {
       }
 
       const planMap: Record<string, string> = {
-        'spinshot_pro_monthly': 'pro_monthly',
-        'spinshot_pro_annual':  'pro_annual',
+        'pro_monthly': 'pro_monthly',
+        'pro_annual':  'pro_annual',
       };
       const plan = planMap[productId];
       if (!plan) {

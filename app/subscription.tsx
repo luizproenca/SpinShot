@@ -50,7 +50,7 @@ const FEATURES: Feature[] = [
 ];
 
 type StorePlan = {
-  productId: 'spinshot_pro_monthly' | 'spinshot_pro_annual';
+  productId: 'pro_monthly' | 'pro_annual';
   title: string;
   price: string;
   introPrice: string | null;
@@ -65,18 +65,18 @@ function resolveStorePlans(rcPackages: Array<{
   introPrice: string | null;
 }>) {
   const monthlyPkg =
-    rcPackages.find(p => p.productIdentifier === 'spinshot_pro_monthly') ??
+    rcPackages.find(p => p.productIdentifier === 'pro_monthly') ??
     rcPackages.find(p => p.identifier === '$rc_monthly') ??
     null;
 
   const annualPkg =
-    rcPackages.find(p => p.productIdentifier === 'spinshot_pro_annual') ??
+    rcPackages.find(p => p.productIdentifier === 'pro_annual') ??
     rcPackages.find(p => p.identifier === '$rc_annual') ??
     null;
 
   const monthly: StorePlan | null = monthlyPkg
     ? {
-        productId: 'spinshot_pro_monthly',
+        productId: 'pro_monthly',
         title: 'Mensal',
         price: monthlyPkg.priceString,
         introPrice: monthlyPkg.introPrice,
@@ -87,7 +87,7 @@ function resolveStorePlans(rcPackages: Array<{
 
   const annual: StorePlan | null = annualPkg
     ? {
-        productId: 'spinshot_pro_annual',
+        productId: 'pro_annual',
         title: 'Anual',
         price: annualPkg.priceString,
         introPrice: annualPkg.introPrice,
