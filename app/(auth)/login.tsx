@@ -89,7 +89,7 @@ export default function LoginScreen() {
   };
 
   const handleVerifyOtp = async () => {
-    if (!otp.trim() || otp.length < 4) {
+    if (!otp.trim() || otp.length < 6) {
       showAlert(t.auth.verificationCode, `${t.auth.verificationSubtitle} ${email}`);
       return;
     }
@@ -182,7 +182,7 @@ export default function LoginScreen() {
                   style={[styles.input, styles.otpInput]}
                   value={otp}
                   onChangeText={v => setOtp(v.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="0000"
+                  placeholder="000000"
                   placeholderTextColor={Colors.TextMuted}
                   keyboardType="number-pad"
                   maxLength={6}

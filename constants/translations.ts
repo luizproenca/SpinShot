@@ -60,6 +60,7 @@ const translations = {
     auth: {
       login: 'Entrar',
       register: 'Criar conta',
+      completeName: 'Nome Completo',
       email: 'E-mail',
       password: 'Senha',
       confirmPassword: 'Confirmar senha',
@@ -548,6 +549,7 @@ const translations = {
     auth: {
       login: 'Sign in',
       register: 'Create account',
+      completeName: 'Complete name',
       email: 'Email',
       password: 'Password',
       confirmPassword: 'Confirm password',
@@ -991,6 +993,7 @@ const translations = {
     auth: {
       login: 'Iniciar sesión',
       register: 'Crear cuenta',
+      completeName: 'Nombre Completo',
       email: 'Correo electrónico',
       password: 'Contraseña',
       confirmPassword: 'Confirmar contraseña',
