@@ -63,7 +63,7 @@ export default function RegisterScreen() {
 
           <View style={styles.form}>
             {[
-              { key: 'name', label: t.auth.email, value: name, setter: setName, icon: 'person', placeholder: t.auth.email, type: 'default', secure: false },
+              { key: 'name', label: t.auth.completeName , value: name, setter: setName, icon: 'person', placeholder: t.auth.completeName, type: 'default', secure: false },
               { key: 'email', label: t.auth.email, value: email, setter: setEmail, icon: 'email', placeholder: 'email@example.com', type: 'email-address', secure: false },
               { key: 'pass', label: t.auth.password, value: password, setter: setPassword, icon: 'lock', placeholder: t.auth.password, type: 'default', secure: true },
             ].map((field) => (

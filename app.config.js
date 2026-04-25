@@ -35,17 +35,7 @@ module.exports = {
       },
       edgeToEdgeEnabled: true,
       blockedPermissions: [
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR",
-        "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS",
-        "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT",
-        "android.permission.READ_PHONE_STATE",
-        'android.permission.ACTIVITY_RECOGNITION'
+
       ]
     },
     web: {
@@ -73,6 +63,7 @@ module.exports = {
       'expo-secure-store',
       'expo-sqlite',
       'expo-video',
+      './plugins/withRemovePermissions',
     ],
     experiments: {
       typedRoutes: true,
