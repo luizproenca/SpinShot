@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
   TextInput, Platform, ActivityIndicator, Modal,
@@ -16,6 +16,9 @@ import { Colors, Spacing, Radius, FontSize, FontWeight } from '../../constants/t
 import { LANGUAGES } from '../../constants/config';
 import { formatExpiryDate, getTrialRemainingDays } from '../../services/subscriptionService';
 import * as Application from 'expo-application';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const FEEDBACK_KEY = '@spinshot:recording_flash_feedback';
 
 const PRO_BENEFITS = [
   { icon: 'hide-source', label: 'Sem marca d\'água em todos os vídeos' },
@@ -56,8 +59,26 @@ export default function SettingsScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [flashFeedbackEnabled, setFlashFeedbackEnabled] = useState(true);
 
-  
+  useEffect(() => {
+    (async () => {
+      try {
+        const value = await AsyncStorage.getItem(FEEDBACK_KEY);
+        if (value !== null) {
+          setFlashFeedbackEnabled(value === 'true');
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const toggleFlashFeedback = useCallback(async () => {
+    const next = !flashFeedbackEnabled;
+    setFlashFeedbackEnabled(next);
+    try {
+      await AsyncStorage.setItem(FEEDBACK_KEY, String(next));
+    } catch {}
+  }, [flashFeedbackEnabled]);
 
   const handleSaveName = useCallback(async () => {
     if (!nameValue.trim()) {
@@ -187,7 +208,6 @@ export default function SettingsScreen() {
 
   const initial = (user?.name || user?.email || 'U')[0].toUpperCase();
 
-  // ── Subscription status helpers ────────────────────────────────────────
   const isActive = subscription.status === 'active';
   const isTrialActive = subscription.status === 'trial';
   const isExpired = subscription.status === 'expired' || subscription.status === 'cancelled';
@@ -214,7 +234,6 @@ export default function SettingsScreen() {
       >
         <Text style={styles.title}>{t.settings.title}</Text>
 
-        {/* ─── User Card ─── */}
         <LinearGradient
           colors={['#1A1740', '#0F1235']}
           style={[styles.userCard, { borderColor: planBorderColor }]}
@@ -263,11 +282,9 @@ export default function SettingsScreen() {
           </View>
         </LinearGradient>
 
-        {/* ─── PLAN SECTION ─── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>{t.settings.plan}</Text>
 
-          {/* Current Plan Card */}
           <LinearGradient
             colors={isPro ? ['#7C3AED22', '#4F46E518'] : ['#1A1740', '#12102A']}
             style={[styles.currentPlanCard, { borderColor: planBorderColor }]}
@@ -294,7 +311,6 @@ export default function SettingsScreen() {
             )}
           </LinearGradient>
 
-          {/* Trial / Active / Expired status strip */}
           {isPro && (
             <View style={[
               styles.statusStrip,
@@ -330,7 +346,6 @@ export default function SettingsScreen() {
             </View>
           )}
 
-          {/* Benefits box */}
           <View style={styles.benefitsBox}>
             <Text style={styles.benefitsTitle}>
               {isPro ? t.settings.yourProBenefits : t.settings.whatYouGetPro}
@@ -355,7 +370,6 @@ export default function SettingsScreen() {
             ))}
           </View>
 
-          {/* Upgrade CTA (free users) */}
           {!isPro && (
             <Pressable
               style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
@@ -374,14 +388,13 @@ export default function SettingsScreen() {
                   <Text style={styles.upgradeSub}>{t.settings.upgradeProSub}</Text>
                 </View>
                 <View style={styles.upgradePrice}>
-                  <Text style={styles.upgradePriceText}>R$ 79,90</Text>
-                  <Text style={styles.upgradePriceSub}>/mês</Text>
+                  <Text style={styles.upgradePriceText}>PRO</Text>
+                  <Text style={styles.upgradePriceSub}>Planos</Text>
                 </View>
               </LinearGradient>
             </Pressable>
           )}
 
-          {/* Navigate to full subscription screen */}
           <Pressable
             style={({ pressed }) => [styles.manageRow, styles.manageBoxSingle, { opacity: pressed ? 0.75 : 1 }]}
             onPress={() => router.push('/subscription' as any)}
@@ -393,7 +406,6 @@ export default function SettingsScreen() {
             <MaterialIcons name="chevron-right" size={18} color={Colors.TextMuted} />
           </Pressable>
 
-          {/* Manage subscription (pro users) */}
           {isPro && (
             <View style={styles.manageBox}>
               <Pressable
@@ -425,7 +437,6 @@ export default function SettingsScreen() {
             </View>
           )}
 
-          {/* Restore for free users */}
           {!isPro && (
             <Pressable
               style={({ pressed }) => [styles.restoreLink, { opacity: pressed ? 0.7 : 1 }]}
@@ -439,7 +450,40 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* ─── Language ─── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Gravação</Text>
+
+          <View style={styles.menuBox}>
+            <Pressable
+              style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.75 : 1 }]}
+              onPress={toggleFlashFeedback}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: Colors.Primary + '18' }]}>
+                <MaterialIcons
+                  name={flashFeedbackEnabled ? 'flash-on' : 'flash-off'}
+                  size={18}
+                  color={flashFeedbackEnabled ? '#FBBF24' : Colors.TextMuted}
+                />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.menuText, { color: Colors.TextPrimary }]}>
+                  Sinalizar fim da gravação
+                </Text>
+                <Text style={{ color: Colors.TextMuted, fontSize: 10 }}>
+                  Pisca o flash traseiro ao finalizar o vídeo
+                </Text>
+              </View>
+
+              <MaterialIcons
+                name={flashFeedbackEnabled ? 'toggle-on' : 'toggle-off'}
+                size={32}
+                color={flashFeedbackEnabled ? Colors.Primary : Colors.TextMuted}
+              />
+            </Pressable>
+          </View>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>{t.settings.language}</Text>
           <View style={styles.langRow}>
@@ -467,7 +511,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ─── Account ─── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>{t.settings.account}</Text>
           <View style={styles.menuBox}>
@@ -538,16 +581,14 @@ export default function SettingsScreen() {
                 <Text style={[styles.menuText, { color: '#FF3B30' }]}>{t.settings.deleteAccount}</Text>
                 <Text style={{ color: Colors.TextMuted, fontSize: 10, marginTop: 1 }}>
                   {t.settings.deleteAccountPermanentHint}
-                  </Text>
+                </Text>
               </View>
               <MaterialIcons name="chevron-right" size={18} color="#FF3B3066" />
             </Pressable>
           </View>
         </View>
-
       </ScrollView>
 
-      {/* Delete Account Modal */}
       <Modal
         visible={showDeleteModal}
         transparent
@@ -597,8 +638,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      
-      <View style={[{ paddingHorizontal: Spacing.lg, paddingVertical: 4 }]}> 
+      <View style={[{ paddingHorizontal: Spacing.lg, paddingVertical: 4 }]}>
         <View style={styles.appInfo}>
           <Text style={styles.appInfoText}>SpinShot 360 · {t.settings.version} {version} • Build {build}</Text>
           <Text style={styles.appInfoSub}>{t.settings.allRights}</Text>

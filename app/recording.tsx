@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import * as Device from 'expo-device';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   CameraView,
   CameraType,
@@ -31,6 +32,7 @@ type Phase = 'permissions' | 'countdown' | 'recording' | 'done';
 const ORB_SIZE = 110;
 const RING_SIZE = 120;
 const ORB_STAGE_SIZE = 220;
+const FEEDBACK_KEY = '@spinshot:recording_flash_feedback';
 
 export default function RecordingScreen() {
   const {
@@ -70,11 +72,14 @@ export default function RecordingScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [facing, setFacing] = useState<CameraType>('front');
   const [flash, setFlash] = useState<FlashMode>('off');
+  const [torchEnabled, setTorchEnabled] = useState(false);
   const [localVideoUri, setLocalVideoUri] = useState<string | undefined>(undefined);
+  const [flashFeedbackEnabled, setFlashFeedbackEnabled] = useState(true);
 
   const { t } = useLanguage();
   const cameraRef = useRef<CameraView>(null);
   const recordingStartedRef = useRef(false);
+  const finishingRecordingRef = useRef(false);
   const isIosSimulator = Platform.OS === 'ios' && !Device.isDevice;
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -103,13 +108,59 @@ export default function RecordingScreen() {
     ? `Simulador iOS: gravação simulada (${finalDuration}s)`
     : `Gravando ${totalDuration}s → Gerando ${finalDuration}s`;
 
-  const safeStopRecording = useCallback(async () => {
+  useEffect(() => {
+    (async () => {
+      try {
+        const value = await AsyncStorage.getItem(FEEDBACK_KEY);
+        if (value !== null) {
+          setFlashFeedbackEnabled(value === 'true');
+        }
+      } catch {}
+    })();
+  }, []);
+
+const triggerRearFlashSignal = useCallback(async () => {
+  try {
+    if (!flashFeedbackEnabled) return;
+    if (Platform.OS === 'web') return;
+
+    setFlash('off');
+    setTorchEnabled(false);
+    setFacing('back');
+
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Flash
+    setTorchEnabled(true);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    setTorchEnabled(false);
+
+    setFacing('front');
+  } catch (error) {
+    console.log('Flash de fim de gravação indisponível:', error);
+    setTorchEnabled(false);
+    setFlash('off');
+    setFacing('front');
+  }
+}, [flashFeedbackEnabled]);
+
+  const safeStopRecording = useCallback(async (options?: { signalEnd?: boolean }) => {
     if (isIosSimulator) {
       return;
     }
 
+    if (finishingRecordingRef.current) {
+      return;
+    }
+
+    finishingRecordingRef.current = true;
+
     try {
       await cameraRef.current?.stopRecording();
+
+      if (options?.signalEnd) {
+        await triggerRearFlashSignal();
+      }
     } catch (error: any) {
       const message = String(error?.message ?? error);
 
@@ -124,7 +175,7 @@ export default function RecordingScreen() {
 
       console.error('Erro ao parar gravação:', error);
     }
-  }, [isIosSimulator]);
+  }, [isIosSimulator, triggerRearFlashSignal]);
 
   useEffect(() => {
     (async () => {
@@ -228,6 +279,7 @@ export default function RecordingScreen() {
 
     haptic(Haptics.ImpactFeedbackStyle.Heavy);
     recordingStartedRef.current = false;
+    finishingRecordingRef.current = false;
     progressAnim.setValue(0);
 
     const startRecording = async () => {
@@ -338,7 +390,7 @@ export default function RecordingScreen() {
           if (isIosSimulator) {
             setLocalVideoUri('simulator://mock-video');
           } else {
-            void safeStopRecording();
+            void safeStopRecording({ signalEnd: true });
           }
 
           return totalDuration;
@@ -351,8 +403,8 @@ export default function RecordingScreen() {
     return () => {
       clearInterval(interval);
 
-      if (!isIosSimulator) {
-        void safeStopRecording();
+      if (!isIosSimulator && phase === 'recording') {
+        void safeStopRecording({ signalEnd: false });
       }
     };
   }, [
@@ -442,7 +494,7 @@ export default function RecordingScreen() {
 
   const handleCancel = () => {
     if (phase === 'recording' && !isIosSimulator) {
-      void safeStopRecording();
+      void safeStopRecording({ signalEnd: false });
     }
     router.back();
   };
@@ -471,6 +523,7 @@ export default function RecordingScreen() {
           style={StyleSheet.absoluteFillObject}
           facing={facing}
           flash={flash}
+          enableTorch={torchEnabled}
           mode="video"
         />
         <LinearGradient
@@ -635,7 +688,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#0D0820',
   },
-
   recTint: {
     ...StyleSheet.absoluteFillObject,
     borderWidth: 4,
@@ -644,7 +696,6 @@ const styles = StyleSheet.create({
     zIndex: 1,
     pointerEvents: 'none',
   } as any,
-
   cancelBtn: {
     position: 'absolute',
     zIndex: 20,
@@ -657,14 +708,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
-
   cameraControls: {
     position: 'absolute',
     zIndex: 20,
     flexDirection: 'column',
     gap: 8,
   },
-
   camBtn: {
     width: 38,
     height: 38,
@@ -675,14 +724,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
-
   camBtnActive: {
     backgroundColor: 'rgba(251,191,36,0.2)',
     borderColor: '#FBBF2488',
   },
-
   camBtnDisabled: { opacity: 0.4 },
-
   eventBadge: {
     position: 'absolute',
     zIndex: 20,
@@ -696,33 +742,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
   },
-
   eventDot: {
     width: 7,
     height: 7,
     borderRadius: 4,
   },
-
   eventText: {
     color: '#fff',
     fontSize: FontSize.xs,
     fontWeight: FontWeight.medium,
     maxWidth: 200,
   },
-
   centerBlock: {
     alignItems: 'center',
     gap: Spacing.lg,
     paddingHorizontal: Spacing.xl,
     zIndex: 10,
   },
-
   permText: {
     color: Colors.TextSubtle,
     fontSize: FontSize.md,
     marginTop: Spacing.md,
   },
-
   prepareText: {
     fontSize: FontSize.md,
     color: 'rgba(255,255,255,0.85)',
@@ -731,7 +772,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-
   countNum: {
     fontSize: 148,
     fontWeight: FontWeight.extrabold,
@@ -742,7 +782,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 30,
   },
-
   countSub: {
     color: 'rgba(255,255,255,0.6)',
     fontSize: FontSize.sm,
@@ -750,7 +789,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-
   microLabel: {
     color: 'rgba(255,255,255,0.72)',
     fontSize: FontSize.xs,
@@ -763,13 +801,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     overflow: 'hidden',
   },
-
   orbStage: {
     width: ORB_STAGE_SIZE,
     height: ORB_STAGE_SIZE,
     position: 'relative',
   },
-
   orbAnchor: {
     position: 'absolute',
     top: '50%',
@@ -777,13 +813,11 @@ const styles = StyleSheet.create({
     width: 0,
     height: 0,
   },
-
   ring: {
     position: 'absolute',
     borderWidth: 1.5,
     borderColor: Colors.Recording,
   },
-
   ringBase: {
     width: RING_SIZE,
     height: RING_SIZE,
@@ -791,7 +825,6 @@ const styles = StyleSheet.create({
     marginLeft: -(RING_SIZE / 2),
     marginTop: -(RING_SIZE / 2),
   },
-
   recOrb: {
     position: 'absolute',
     width: ORB_SIZE,
@@ -806,14 +839,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
   },
-
   recDot: {
     width: 14,
     height: 14,
     borderRadius: 7,
     backgroundColor: Colors.Recording,
   },
-
   recLabel: {
     color: Colors.Recording,
     fontSize: 11,
@@ -821,13 +852,11 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     marginTop: 2,
   },
-
   timeBlock: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 2,
   },
-
   timeElapsed: {
     fontSize: 72,
     fontWeight: FontWeight.extrabold,
@@ -837,29 +866,24 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,
   },
-
   timeSep: {
     fontSize: 32,
     color: 'rgba(255,255,255,0.5)',
     lineHeight: 56,
     fontWeight: FontWeight.regular,
   },
-
   timeTotal: {
     fontSize: 32,
     color: 'rgba(255,255,255,0.5)',
     lineHeight: 56,
     fontWeight: FontWeight.regular,
   },
-
   remainText: {
     color: 'rgba(255,255,255,0.6)',
     fontSize: FontSize.sm,
     marginTop: -Spacing.sm,
   },
-
   progressWrap: { width: 280 },
-
   progressTrack: {
     height: 8,
     backgroundColor: 'rgba(255,255,255,0.15)',
@@ -868,7 +892,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.3)',
   },
-
   progressFill: {
     height: '100%',
     backgroundColor: Colors.Recording,
@@ -876,7 +899,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'visible',
   },
-
   progressGlow: {
     position: 'absolute',
     right: 0,
@@ -891,14 +913,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-
   doneOverlay: {
     backgroundColor: 'rgba(13,8,32,0.85)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 30,
   },
-
   doneOrb: {
     width: 140,
     height: 140,
@@ -909,18 +929,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   doneTitle: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
     color: Colors.Success,
   },
-
   doneSub: {
     color: 'rgba(255,255,255,0.6)',
     fontSize: FontSize.sm,
   },
-
   bottomBadge: {
     position: 'absolute',
     zIndex: 20,
@@ -931,7 +948,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
   },
-
   effectText: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: FontSize.xs,
