@@ -7,7 +7,7 @@ module.exports = {
     version: versionData.version,
     icon: './assets/images/icon.png',
     orientation: 'portrait',
-    scheme: 'onspaceapp',
+    scheme: 'spinshot',
     userInterfaceStyle: 'dark',
     newArchEnabled: true,
     ios: {
