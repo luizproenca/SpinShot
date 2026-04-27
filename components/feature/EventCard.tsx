@@ -11,9 +11,16 @@ interface EventCardProps {
   isActive?: boolean;
   onPress: (event: Event) => void;
   onDelete?: (event: Event) => void;
+  onOperatorPress?: (event: Event) => void;
 }
 
-export function EventCard({ event, isActive, onPress, onDelete }: EventCardProps) {
+export function EventCard({
+  event,
+  isActive,
+  onPress,
+  onDelete,
+  onOperatorPress,
+}: EventCardProps) {
   return (
     <Pressable
       style={({ pressed }) => [
@@ -52,11 +59,34 @@ export function EventCard({ event, isActive, onPress, onDelete }: EventCardProps
                 <Text style={styles.activeBadgeText}>Ativo</Text>
               </View>
             )}
-            {onDelete && (
-              <Pressable onPress={() => onDelete(event)} hitSlop={8} style={styles.deleteBtn}>
-                <MaterialIcons name="delete-outline" size={18} color={Colors.TextMuted} />
-              </Pressable>
-            )}
+
+            <View style={styles.actionsRow}>
+              {onOperatorPress && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onOperatorPress(event);
+                  }}
+                  hitSlop={8}
+                  style={[styles.monitorBtn, { borderColor: event.color + '55' }]}
+                >
+                  <MaterialIcons name="desktop-windows" size={18} color={event.color} />
+                </Pressable>
+              )}
+
+              {onDelete && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onDelete(event);
+                  }}
+                  hitSlop={8}
+                  style={styles.deleteBtn}
+                >
+                  <MaterialIcons name="delete-outline" size={18} color={Colors.TextMuted} />
+                </Pressable>
+              )}
+            </View>
           </View>
         </View>
       </LinearGradient>
@@ -124,6 +154,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 11,
     fontWeight: FontWeight.bold,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  monitorBtn: {
+    padding: 5,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
   deleteBtn: {
     padding: 4,

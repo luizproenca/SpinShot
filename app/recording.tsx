@@ -17,6 +17,7 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from 'expo-camera';
+import { getSupabaseClient } from '@/template';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../constants/theme';
 import { useLanguage } from '../hooks/useLanguage';
 import {
@@ -28,11 +29,13 @@ import {
 } from '../services/videoEffectsService';
 
 type Phase = 'permissions' | 'countdown' | 'recording' | 'done';
+type OperatorStatus = 'idle' | 'countdown' | 'recording' | 'finished' | 'cancelled';
 
 const ORB_SIZE = 110;
 const RING_SIZE = 120;
 const ORB_STAGE_SIZE = 220;
 const FEEDBACK_KEY = '@spinshot:recording_flash_feedback';
+const OPERATOR_IDLE_DELAY_MS = 5000;
 
 export default function RecordingScreen() {
   const {
@@ -80,6 +83,7 @@ export default function RecordingScreen() {
   const cameraRef = useRef<CameraView>(null);
   const recordingStartedRef = useRef(false);
   const finishingRecordingRef = useRef(false);
+  const operatorResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isIosSimulator = Platform.OS === 'ios' && !Device.isDevice;
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -108,6 +112,36 @@ export default function RecordingScreen() {
     ? `Simulador iOS: gravação simulada (${finalDuration}s)`
     : `Gravando ${totalDuration}s → Gerando ${finalDuration}s`;
 
+  const updateOperatorState = useCallback(async (
+    status: OperatorStatus,
+    data?: {
+      countdown?: number;
+      remainingSeconds?: number;
+      totalSeconds?: number;
+    },
+  ) => {
+    if (!eventId) return;
+
+    try {
+      const supabase = getSupabaseClient();
+
+      await supabase
+        .from('recording_state')
+        .upsert({
+          event_id: String(eventId),
+          event_name: eventName || '',
+          event_color: eventColor || Colors.Primary,
+          status,
+          countdown: data?.countdown ?? 0,
+          remaining_seconds: data?.remainingSeconds ?? 0,
+          total_seconds: data?.totalSeconds ?? totalDuration,
+          updated_at: new Date().toISOString(),
+        });
+    } catch (error) {
+      console.log('[operator] update failed:', error);
+    }
+  }, [eventId, eventName, eventColor, totalDuration]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -119,30 +153,29 @@ export default function RecordingScreen() {
     })();
   }, []);
 
-const triggerRearFlashSignal = useCallback(async () => {
-  try {
-    if (!flashFeedbackEnabled) return;
-    if (Platform.OS === 'web') return;
+  const triggerRearFlashSignal = useCallback(async () => {
+    try {
+      if (!flashFeedbackEnabled) return;
+      if (Platform.OS === 'web') return;
 
-    setFlash('off');
-    setTorchEnabled(false);
-    setFacing('back');
+      setFlash('off');
+      setTorchEnabled(false);
+      setFacing('back');
 
-    await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Flash
-    setTorchEnabled(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setTorchEnabled(false);
+      setTorchEnabled(true);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setTorchEnabled(false);
 
-    setFacing('front');
-  } catch (error) {
-    console.log('Flash de fim de gravação indisponível:', error);
-    setTorchEnabled(false);
-    setFlash('off');
-    setFacing('front');
-  }
-}, [flashFeedbackEnabled]);
+      setFacing('front');
+    } catch (error) {
+      console.log('Flash de fim de gravação indisponível:', error);
+      setTorchEnabled(false);
+      setFlash('off');
+      setFacing('front');
+    }
+  }, [flashFeedbackEnabled]);
 
   const safeStopRecording = useCallback(async (options?: { signalEnd?: boolean }) => {
     if (isIosSimulator) {
@@ -256,26 +289,58 @@ const triggerRearFlashSignal = useCallback(async () => {
     animateCountNumber();
     haptic(Haptics.ImpactFeedbackStyle.Light);
 
+    void updateOperatorState('countdown', {
+      countdown,
+      remainingSeconds: totalDuration,
+      totalSeconds: totalDuration,
+    });
+
     const interval = setInterval(async () => {
       await haptic(Haptics.ImpactFeedbackStyle.Medium);
 
       setCountdown(prev => {
         const next = prev - 1;
+
         if (next <= 0) {
           clearInterval(interval);
+
+          void updateOperatorState('recording', {
+            remainingSeconds: totalDuration,
+            totalSeconds: totalDuration,
+          });
+
           setPhase('recording');
           return 0;
         }
+
+        void updateOperatorState('countdown', {
+          countdown: next,
+          remainingSeconds: totalDuration,
+          totalSeconds: totalDuration,
+        });
+
         animateCountNumber();
         return next;
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [animateCountNumber, haptic, phase]);
+  }, [
+    animateCountNumber,
+    countdown,
+    haptic,
+    phase,
+    totalDuration,
+    updateOperatorState,
+  ]);
 
   useEffect(() => {
     if (phase !== 'recording') return;
+
+    void updateOperatorState('recording', {
+      remainingSeconds: totalDuration,
+      totalSeconds: totalDuration,
+    });
 
     haptic(Haptics.ImpactFeedbackStyle.Heavy);
     recordingStartedRef.current = false;
@@ -383,9 +448,31 @@ const triggerRearFlashSignal = useCallback(async () => {
 
       setElapsed(prev => {
         const next = prev + 1;
+        const remainingSeconds = Math.max(totalDuration - next, 0);
+
+        void updateOperatorState('recording', {
+          remainingSeconds,
+          totalSeconds: totalDuration,
+        });
 
         if (next >= totalDuration) {
           clearInterval(interval);
+
+          void updateOperatorState('finished', {
+            remainingSeconds: 0,
+            totalSeconds: totalDuration,
+          });
+
+          if (operatorResetTimerRef.current) {
+            clearTimeout(operatorResetTimerRef.current);
+          }
+
+          operatorResetTimerRef.current = setTimeout(() => {
+            void updateOperatorState('idle', {
+              remainingSeconds: 0,
+              totalSeconds: totalDuration,
+            });
+          }, OPERATOR_IDLE_DELAY_MS);
 
           if (isIosSimulator) {
             setLocalVideoUri('simulator://mock-video');
@@ -422,7 +509,16 @@ const triggerRearFlashSignal = useCallback(async () => {
     ring3Scale,
     safeStopRecording,
     totalDuration,
+    updateOperatorState,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (operatorResetTimerRef.current) {
+        clearTimeout(operatorResetTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -496,6 +592,12 @@ const triggerRearFlashSignal = useCallback(async () => {
     if (phase === 'recording' && !isIosSimulator) {
       void safeStopRecording({ signalEnd: false });
     }
+
+    void updateOperatorState('cancelled', {
+      remainingSeconds: 0,
+      totalSeconds: totalDuration,
+    });
+
     router.back();
   };
 

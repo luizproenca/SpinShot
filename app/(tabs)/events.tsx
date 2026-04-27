@@ -27,7 +27,7 @@ function EventListCard({
   onRefreshCount,
   activeLabel,
   videosLabel,
-  editLabel,
+  isPro,
 }: {
   event: Event;
   isActive: boolean;
@@ -40,9 +40,11 @@ function EventListCard({
   editLabel: string;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const router = useRouter();
 
   const onPressIn = () =>
-    Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start();
+    Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true, speed: 50 }).start();
+
   const onPressOut = () =>
     Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
 
@@ -53,66 +55,102 @@ function EventListCard({
         onPressOut={onPressOut}
         onPress={() => onActivate(event)}
       >
-        <View style={[
-          styles.eventCard,
-          isActive && { borderColor: event.color + '88', backgroundColor: event.color + '0A' },
-        ]}>
+        <View
+          style={[
+            styles.eventCard,
+            isActive && {
+              borderColor: event.color + 'AA',
+              backgroundColor: event.color + '10',
+            },
+          ]}
+        >
           <View style={[styles.cardAccent, { backgroundColor: event.color }]} />
 
-          <View style={[styles.logoWrap, { backgroundColor: event.color + '22', borderColor: event.color + '44' }]}>
-            {event.logoUri ? (
-              <Image
-                source={{ uri: event.logoUri }}
-                style={styles.logoImg}
-                contentFit="cover"
-                transition={200}
-              />
-            ) : (
-              <MaterialIcons name="celebration" size={24} color={event.color} />
-            )}
-          </View>
-
-          <View style={styles.cardInfo}>
-            <View style={styles.cardNameRow}>
-              <Text style={styles.cardName} numberOfLines={1}>{event.name}</Text>
-              {isActive && (
-                <View style={[styles.activeBadge, { backgroundColor: event.color + '22', borderColor: event.color + '55' }]}>
-                  <View style={[styles.activeDot, { backgroundColor: event.color }]} />
-                  <Text style={[styles.activeBadgeText, { color: event.color }]}>{activeLabel}</Text>
-                </View>
+          <View style={styles.eventMainRow}>
+            <View style={[styles.logoWrap, { backgroundColor: event.color + '22', borderColor: event.color + '44' }]}>
+              {event.logoUri ? (
+                <Image source={{ uri: event.logoUri }} style={styles.logoImg} contentFit="cover" transition={200} />
+              ) : (
+                <MaterialIcons name="celebration" size={24} color={event.color} />
               )}
             </View>
 
-            <View style={styles.cardStats}>
-              <Pressable
-                style={styles.statChip}
-                onPress={() => onRefreshCount(event.id)}
-                hitSlop={6}
-              >
-                <MaterialIcons name="videocam" size={13} color={Colors.TextSubtle} />
-                <Text style={styles.statChipText}>{event.videoCount} {videosLabel}</Text>
-                <MaterialIcons name="refresh" size={11} color={Colors.TextMuted} />
-              </Pressable>
-
-              {event.createdAt && (
-                <Text style={styles.cardDate}>
-                  {new Date(event.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+            <View style={styles.cardInfo}>
+              <View style={styles.cardTopLine}>
+                <Text style={styles.cardName} numberOfLines={1}>
+                  {event.name}
                 </Text>
-              )}
+
+                {isActive && (
+                  <View style={[styles.activeBadge, { backgroundColor: event.color + '22', borderColor: event.color + '66' }]}>
+                    <View style={[styles.activeDot, { backgroundColor: event.color }]} />
+                    <Text style={[styles.activeBadgeText, { color: event.color }]}>
+                      {activeLabel}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.cardBottomLine}>
+                <Pressable
+                  style={styles.statChip}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRefreshCount(event.id);
+                  }}
+                  hitSlop={6}
+                >
+                  <MaterialIcons name="videocam" size={13} color={Colors.TextSubtle} />
+                  <Text style={styles.statChipText}>
+                    {event.videoCount} {videosLabel}
+                  </Text>
+                  <MaterialIcons name="refresh" size={11} color={Colors.TextMuted} />
+                </Pressable>
+
+                {event.createdAt && (
+                  <Text style={styles.cardDate} numberOfLines={1}>
+                    {new Date(event.createdAt).toLocaleDateString('pt-BR', {
+                      day: '2-digit',
+                      month: 'short',
+                    })}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
 
-          <View style={styles.cardActions}>
+          <View style={styles.cardActionsRow}>
+            {isPro && (
+              <Pressable
+                style={[styles.cardActionBtn, styles.monitorActionBtn, { borderColor: event.color + '55' }]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  router.push(`/operator/${event.id}` as any);
+                }}
+                hitSlop={8}
+              >
+                <MaterialIcons name="desktop-windows" size={18} color={event.color} />
+                <Text style={[styles.monitorActionText, { color: event.color }]}>Monitor</Text>
+              </Pressable>
+            )}
+
             <Pressable
               style={styles.cardActionBtn}
-              onPress={() => onEdit(event)}
+              onPress={(e) => {
+                e.stopPropagation();
+                onEdit(event);
+              }}
               hitSlop={8}
             >
               <MaterialIcons name="edit" size={18} color={Colors.TextSubtle} />
             </Pressable>
+
             <Pressable
               style={styles.cardActionBtn}
-              onPress={() => onDelete(event)}
+              onPress={(e) => {
+                e.stopPropagation();
+                onDelete(event);
+              }}
               hitSlop={8}
             >
               <MaterialIcons name="delete-outline" size={18} color={Colors.TextMuted} />
@@ -462,6 +500,7 @@ export default function EventsScreen() {
                 key={event.id}
                 event={event}
                 isActive={activeEvent?.id === event.id}
+                isPro={isPro}
                 onActivate={handleActivate}
                 onDelete={handleDelete}
                 onEdit={handleOpenEdit}
@@ -917,38 +956,131 @@ const styles = StyleSheet.create({
 
   listGap: { gap: Spacing.sm },
   eventCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.SurfaceElevated, borderRadius: Radius.xl,
-    borderWidth: 1.5, borderColor: Colors.Border, overflow: 'hidden',
-    gap: Spacing.md, paddingRight: Spacing.md, paddingVertical: Spacing.md,
+    backgroundColor: Colors.SurfaceElevated,
+    borderRadius: Radius.xl,
+    borderWidth: 1.5,
+    borderColor: Colors.Border,
+    overflow: 'hidden',
+    padding: Spacing.md,
+    gap: Spacing.md,
   },
-  cardAccent: { width: 4, alignSelf: 'stretch', borderRadius: 0 },
+  cardAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+  },
+  eventMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingLeft: 4,
+  },
   logoWrap: {
-    width: 52, height: 52, borderRadius: Radius.lg,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, overflow: 'hidden',
+    width: 56,
+    height: 56,
+    borderRadius: Radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    overflow: 'hidden',
+    flexShrink: 0,
   },
   logoImg: { width: '100%', height: '100%' },
-  cardInfo: { flex: 1, gap: 5 },
-  cardNameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' },
-  cardName: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.TextPrimary, flex: 1 },
-  activeBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1,
+  cardInfo: {
+    flex: 1,
+    minWidth: 0,
+    gap: 8,
   },
-  activeDot: { width: 5, height: 5, borderRadius: 3 },
-  activeBadgeText: { fontSize: 10, fontWeight: FontWeight.bold },
+  cardTopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  cardNameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' },
+  cardName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: Colors.TextPrimary,
+  },
+  activeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+
+  activeDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+
+  activeBadgeText: {
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+  },
+
+  cardBottomLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   cardStats: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   statChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.Surface, borderRadius: Radius.full,
-    paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: Colors.Border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.Surface,
+    borderRadius: Radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    flexShrink: 0,
   },
   statChipText: { color: Colors.TextSubtle, fontSize: 11 },
-  cardDate: { color: Colors.TextMuted, fontSize: 11 },
+    cardDate: {
+    color: Colors.TextMuted,
+    fontSize: 11,
+    flexShrink: 1,
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    paddingLeft: 72,
+  },
   cardActions: { flexDirection: 'row', gap: 4 },
-  cardActionBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  cardActionBtn: {
+    height: 34,
+    minWidth: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: Colors.Border,
+    paddingHorizontal: 9,
+  },
+  monitorActionBtn: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
 
+  monitorActionText: {
+    fontSize: 11,
+    fontWeight: FontWeight.bold,
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',

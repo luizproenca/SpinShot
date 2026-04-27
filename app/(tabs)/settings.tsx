@@ -21,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const FEEDBACK_KEY = '@spinshot:recording_flash_feedback';
 
 const PRO_BENEFITS = [
+  { icon: 'desktop-windows', label: 'Modo operador externo com QR Code para download' },
   { icon: 'hide-source', label: 'Sem marca d\'água em todos os vídeos' },
   { icon: 'hd', label: 'Exportação Full HD (1080p)' },
   { icon: 'all-inclusive', label: 'Eventos ilimitados' },
@@ -31,6 +32,7 @@ const PRO_BENEFITS = [
 ];
 
 const FREE_BENEFITS = [
+  { icon: 'desktop-windows', label: 'Modo operador externo com QR Code para download' },
   { icon: 'hide-source', label: 'Sem marca d\'água' },
   { icon: 'hd', label: 'Exportação Full HD (1080p)' },
   { icon: 'all-inclusive', label: 'Eventos ilimitados' },

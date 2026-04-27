@@ -39,6 +39,7 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
+  { icon: 'desktop-windows', labelKey: 'featureOperatorMode', proOnly: true },
   { icon: 'hide-source',    labelKey: 'featureNoWatermark',    proOnly: true },
   { icon: 'hd',             labelKey: 'featureFullHD',          proOnly: true },
   { icon: 'all-inclusive',  labelKey: 'featureUnlimitedEvents', proOnly: true },
@@ -527,7 +528,9 @@ export default function SubscriptionScreen() {
                   styles.featureText,
                   !isPro && { color: Colors.TextMuted },
                 ]}>
-                  {ts[f.labelKey]}
+                  {ts[f.labelKey] || (f.labelKey === 'featureOperatorMode'
+                  ? 'Modo operador externo com QR Code para download'
+                  : f.labelKey)}
                 </Text>
                 {!isPro && (
                   <View style={styles.lockChip}>

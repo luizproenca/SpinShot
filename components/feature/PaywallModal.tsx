@@ -37,6 +37,7 @@ const FREE_BLOCKS = [
 ];
 
 const PRO_FEATURES = [
+  { icon: 'desktop-windows', labelKey: 'feature_operator_mode' },
   { icon: 'hide-source', labelKey: 'feature_no_watermark' },
   { icon: 'hd', labelKey: 'feature_fullhd' },
   { icon: 'all-inclusive', labelKey: 'feature_unlimited_events' },
@@ -495,7 +496,11 @@ export default function PaywallModal() {
                 <View style={styles.featureIconWrap}>
                   <MaterialIcons name={f.icon as any} size={14} color={Colors.Success} />
                 </View>
-                <Text style={styles.featureText}>{(t.paywall as any)[f.labelKey]}</Text>
+                <Text style={styles.featureText}>
+                  {(t.paywall as any)[f.labelKey] || (f.labelKey === 'feature_operator_mode'
+                ? 'Modo operador externo com QR Code para download'
+                : f.labelKey)}
+                </Text>
               </View>
             ))}
           </View>
