@@ -1,7 +1,6 @@
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Video } from './types';
-import { MOCK_QR_BASE_URL } from '../constants/config';
 import { eventService } from './eventService';
 import { MusicSelection } from '../constants/music';
 import { resolveMusicForProcessing } from './musicService';
@@ -11,10 +10,12 @@ import { calculateDurationPlan, VideoPreset } from './videoEffectsService';
 async function getStoredIsPro(): Promise<boolean> {
   try {
     const stored = await AsyncStorage.getItem('@spinshot:subscription_v2');
+
     if (stored) {
       const sub = JSON.parse(stored);
       return sub.isPro === true;
     }
+
     const plan = await AsyncStorage.getItem('@spinshot:plan');
     return plan === 'pro';
   } catch {
@@ -31,11 +32,11 @@ function toVideo(row: any): Video {
     eventId: row.event_id || '',
     eventName: row.event_name,
     eventColor: row.event_color || '#8B5CF6',
-    thumbnailUri: row.thumbnail_uri,
-    videoUri: row.video_url,
+    thumbnailUri: row.thumbnail_uri || undefined,
+    videoUri: row.video_url || undefined,
     effect: row.effect || 'normal',
     duration: row.duration || 15,
-    shareUrl: row.share_url || '',
+    shareUrl: row.share_url || row.video_url || '',
     shareCode: row.share_code || '',
     createdAt: row.created_at,
     downloads: row.downloads || 0,
@@ -43,7 +44,8 @@ function toVideo(row: any): Video {
 }
 
 function getVideoContentType(localUri: string): string {
-  const fileExt = localUri.split('.').pop()?.toLowerCase() || 'mp4';
+  const cleanUri = localUri.split('?')[0];
+  const fileExt = cleanUri.split('.').pop()?.toLowerCase() || 'mp4';
 
   switch (fileExt) {
     case 'mov':
@@ -58,24 +60,91 @@ function getVideoContentType(localUri: string): string {
   }
 }
 
+function getVideoFileExtension(localUri: string): string {
+  const cleanUri = localUri.split('?')[0];
+  const fileExt = cleanUri.split('.').pop()?.toLowerCase();
+
+  if (!fileExt || fileExt.length > 5 || fileExt.includes('/')) {
+    return 'mp4';
+  }
+
+  return fileExt;
+}
+
+function isHttpUrl(value?: string | null): value is string {
+  if (!value) return false;
+
+  const lower = value.toLowerCase();
+  return lower.startsWith('https://') || lower.startsWith('http://');
+}
+
+function isRemoteVideoUrl(value?: string | null): value is string {
+  if (!value) return false;
+
+  const lower = value.toLowerCase();
+
+  if (!isHttpUrl(value)) return false;
+
+  return (
+    lower.includes('res.cloudinary.com') ||
+    lower.includes('/video/upload/') ||
+    lower.endsWith('.mp4') ||
+    lower.includes('.mp4?')
+  );
+}
+
+function normalizeLocalVideoUri(uri: string): string {
+  if (!uri) return uri;
+
+  if (uri.startsWith('/')) {
+    return `file://${uri}`;
+  }
+
+  return uri;
+}
+
+function isProcessableLocalVideoUri(uri?: string | null): uri is string {
+  if (!uri) return false;
+
+  const normalized = normalizeLocalVideoUri(uri);
+
+  if (isHttpUrl(normalized)) {
+    return false;
+  }
+
+  return (
+    normalized.startsWith('file://') ||
+    normalized.startsWith('content://') ||
+    normalized.startsWith('ph://') ||
+    normalized.startsWith('assets-library://') ||
+    normalized.startsWith('/')
+  );
+}
+
 async function uploadVideoToStorage(userId: string, localUri: string): Promise<string> {
-  const fileExt = localUri.split('.').pop()?.toLowerCase() || 'mp4';
+  const normalizedUri = normalizeLocalVideoUri(localUri);
+  const fileExt = getVideoFileExtension(normalizedUri);
   const fileName = `${userId}/${Date.now()}.${fileExt}`;
-  const contentType = getVideoContentType(localUri);
+  const contentType = getVideoContentType(normalizedUri);
 
   console.log('[uploadVideoToStorage] starting', {
     bucket: STORAGE_BUCKET,
     fileName,
     contentType,
-    localUri,
+    localUri: normalizedUri,
   });
 
-  const fileResponse = await fetch(localUri);
+  const fileResponse = await fetch(normalizedUri);
+
   if (!fileResponse.ok) {
     throw new Error(`Falha ao ler arquivo local: ${fileResponse.status}`);
   }
 
   const arrayBuffer = await fileResponse.arrayBuffer();
+
+  if (!arrayBuffer.byteLength) {
+    throw new Error('O arquivo local foi lido, mas está vazio.');
+  }
 
   console.log('[uploadVideoToStorage] file loaded', {
     bytes: arrayBuffer.byteLength,
@@ -96,6 +165,10 @@ async function uploadVideoToStorage(userId: string, localUri: string): Promise<s
 
   const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
 
+  if (!data.publicUrl) {
+    throw new Error('Upload concluído, mas a URL pública do vídeo não foi gerada.');
+  }
+
   console.log('[uploadVideoToStorage] upload complete', {
     publicUrl: data.publicUrl,
   });
@@ -111,7 +184,7 @@ async function processVideoWithEffects(
   frameCloudinaryId: string | null,
   isPro: boolean,
   finalDuration: number,
-): Promise<{ processedUrl: string; thumbnailUrl: string }> {
+): Promise<{ processedUrl: string; thumbnailUrl: string | null }> {
   console.log('Music cloudinaryId resolved:', musicCloudinaryId ?? 'none');
   console.log('Frame cloudinaryId:', frameCloudinaryId ?? 'none');
 
@@ -133,6 +206,7 @@ async function processVideoWithEffects(
 
   if (error) {
     let errorMessage = error.message;
+
     if (error instanceof FunctionsHttpError) {
       try {
         const statusCode = error.context?.status ?? 500;
@@ -142,13 +216,45 @@ async function processVideoWithEffects(
         errorMessage = error.message || 'Edge Function error';
       }
     }
+
     throw new Error('process-video: ' + errorMessage);
   }
 
+  const processedUrl = data?.processedUrl;
+  const thumbnailUrl = data?.thumbnailUrl || null;
+
+  if (!isRemoteVideoUrl(processedUrl)) {
+    console.error('[processVideoWithEffects] invalid response', data);
+    throw new Error('A Edge Function não retornou uma URL final válida do vídeo processado.');
+  }
+
   return {
-    processedUrl: data.processedUrl,
-    thumbnailUrl: data.thumbnailUrl,
+    processedUrl,
+    thumbnailUrl,
   };
+}
+
+async function waitForRemoteVideoReady(url: string): Promise<void> {
+  const timeoutMs = 90000;
+  const intervalMs = 2500;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url, {
+        method: 'HEAD',
+        cache: 'no-store',
+      });
+
+      if (response.ok || response.status === 405) {
+        return;
+      }
+    } catch {}
+
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error('O vídeo final foi gerado, mas ainda não ficou disponível para reprodução.');
 }
 
 export const videoService = {
@@ -160,6 +266,7 @@ export const videoService = {
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(error.message);
+
     return (data || []).map(toVideo);
   },
 
@@ -173,46 +280,47 @@ export const videoService = {
     },
     onProgress?: (step: 'uploading' | 'processing' | 'saving') => void,
   ): Promise<Video> {
-    const shareCode = Math.random().toString(36).slice(2, 8);
-
-    let finalVideoUrl: string | null = null;
-    let thumbnailUrl: string | null = null;
-
-    if (data.videoUri && data.videoUri.startsWith('file://')) {
-      try {
-        onProgress?.('uploading');
-        const storageUrl = await uploadVideoToStorage(userId, data.videoUri);
-
-        onProgress?.('processing');
-        const isPro = await getStoredIsPro();
-
-        const musicCloudinaryId = resolveMusicForProcessing(
-          data.musicTracks ?? [],
-          data.musicSelection,
-          data.effect || 'boomerang',
-          isPro,
-        );
-
-        const processed = await processVideoWithEffects(
-          storageUrl,
-          data.effect || 'boomerang',
-          userId,
-          musicCloudinaryId,
-          data.frameCloudinaryId || null,
-          isPro,
-          data.duration || 10,
-        );
-
-        finalVideoUrl = processed.processedUrl;
-        thumbnailUrl = processed.thumbnailUrl;
-      } catch (e) {
-        console.error('Video upload/processing failed:', e);
-      }
+    if (!data.videoUri) {
+      throw new Error('Nenhum vídeo foi informado para processamento.');
     }
 
-    onProgress?.('saving');
+    if (!isProcessableLocalVideoUri(data.videoUri)) {
+      console.error('[saveVideo] invalid source video uri', {
+        videoUri: data.videoUri,
+      });
 
-    const shareUrl = `${MOCK_QR_BASE_URL}${shareCode}`;
+      throw new Error('O vídeo precisa ser uma URI local válida antes do processamento.');
+    }
+
+    const localSourceUri = normalizeLocalVideoUri(data.videoUri);
+    const shareCode = Math.random().toString(36).slice(2, 8);
+
+    onProgress?.('uploading');
+    const storageUrl = await uploadVideoToStorage(userId, localSourceUri);
+
+    onProgress?.('processing');
+    const isPro = await getStoredIsPro();
+
+    const musicCloudinaryId = resolveMusicForProcessing(
+      data.musicTracks ?? [],
+      data.musicSelection,
+      data.effect || 'boomerang',
+      isPro,
+    );
+
+    const processed = await processVideoWithEffects(
+      storageUrl,
+      data.effect || 'boomerang',
+      userId,
+      musicCloudinaryId,
+      data.frameCloudinaryId || null,
+      isPro,
+      data.duration || 10,
+    );
+
+    await waitForRemoteVideoReady(processed.processedUrl);
+
+    onProgress?.('saving');
 
     const { data: row, error } = await supabase
       .from('videos')
@@ -221,11 +329,11 @@ export const videoService = {
         event_id: data.eventId || null,
         event_name: data.eventName || 'Evento',
         event_color: data.eventColor || '#8B5CF6',
-        video_url: finalVideoUrl,
-        thumbnail_uri: thumbnailUrl || data.thumbnailUri || null,
+        video_url: processed.processedUrl,
+        thumbnail_uri: processed.thumbnailUrl,
         effect: data.effect || 'normal',
         duration: data.duration || 15,
-        share_url: finalVideoUrl || shareUrl,
+        share_url: processed.processedUrl,
         share_code: shareCode,
         downloads: 0,
       })
@@ -254,6 +362,7 @@ export const videoService = {
       try {
         const url = new URL(video.video_url);
         const pathParts = url.pathname.split(`/${STORAGE_BUCKET}/`);
+
         if (pathParts[1]) {
           await supabase.storage.from(STORAGE_BUCKET).remove([pathParts[1]]);
         }

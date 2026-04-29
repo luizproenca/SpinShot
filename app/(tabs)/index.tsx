@@ -808,6 +808,19 @@ export default function HomeScreen() {
 
   const hasActiveEvent = Boolean(activeEvent);
 
+
+  const openPaywallFromConfig = useCallback((trigger?: any) => {
+    if (Platform.OS !== 'web') {
+      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
+    }
+
+    setShowSheet(false);
+
+    setTimeout(() => {
+      showPaywall(trigger || 'generic');
+    }, 320);
+  }, [showPaywall]);
+
   const showNoEventHint = useCallback(() => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
     setShowNoEventTooltip(true);
@@ -879,18 +892,24 @@ export default function HomeScreen() {
   };
 
   const handleEffectSelect = (effectId: VideoPreset) => {
-    if (!isPro && (effectId === 'cinematic' || effectId === 'hype')) {
-      showPaywall(effectId === 'cinematic' ? 'cinematic' : 'hype');
+    const isLocked = !isPro && (effectId === 'cinematic' || effectId === 'hype');
+
+    if (isLocked) {
+      openPaywallFromConfig(effectId === 'cinematic' ? 'cinematic' : 'hype');
       return;
     }
+
     setSelectedEffect(effectId);
   };
 
   const handleDurationSelect = (d: number) => {
-    if (!isPro && d > 10) {
-      showPaywall('duration');
+    const isLocked = !isPro && d > 10;
+
+    if (isLocked) {
+      openPaywallFromConfig('duration');
       return;
     }
+
     setDuration(d);
   };
 
@@ -1253,10 +1272,7 @@ export default function HomeScreen() {
         musicSelection={musicSelection}
         setMusicSelection={setMusicSelection}
         isPro={isPro}
-        onUpgrade={() => {
-          setShowSheet(false);
-          showPaywall();
-        }}
+        onUpgrade={() => openPaywallFromConfig('premium_music')}
         freeTracks={freeTracks}
         premiumTracks={premiumTracks}
         musicLoading={musicLoading}

@@ -1,8 +1,8 @@
 const { withAndroidManifest } = require('@expo/config-plugins');
 
 const PERMISSIONS_TO_REMOVE = [
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
+/*         "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO", */
 ];
 
 module.exports = function withRemovePermissions(config) {
