@@ -2,8 +2,66 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
+import * as aesjs from 'aes-js';
 import 'react-native-url-polyfill/auto';
 import { SupabaseConfig } from './types';
+
+// Supabase's session JSON (access + refresh token) can exceed SecureStore's
+// ~2KB item size limit, so it can't be stored there directly. This follows
+// Supabase's own recommended Expo pattern: the session ciphertext (no size
+// limit) lives in AsyncStorage, while the AES key that decrypts it lives in
+// SecureStore/Keychain — so the token itself is never readable at rest from
+// a plain AsyncStorage/backup dump.
+class LargeSecureStore {
+  private async _encrypt(key: string, value: string): Promise<string> {
+    const encryptionKey = Crypto.getRandomBytes(32);
+    const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
+    const encryptedBytes = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
+
+    await SecureStore.setItemAsync(key, aesjs.utils.hex.fromBytes(encryptionKey));
+
+    return aesjs.utils.hex.fromBytes(encryptedBytes);
+  }
+
+  private async _decrypt(key: string, value: string): Promise<string | null> {
+    const encryptionKeyHex = await SecureStore.getItemAsync(key);
+    if (!encryptionKeyHex) return null;
+
+    const cipher = new aesjs.ModeOfOperation.ctr(
+      aesjs.utils.hex.toBytes(encryptionKeyHex),
+      new aesjs.Counter(1),
+    );
+    const decryptedBytes = cipher.decrypt(aesjs.utils.hex.toBytes(value));
+
+    return aesjs.utils.utf8.fromBytes(decryptedBytes);
+  }
+
+  async getItem(key: string): Promise<string | null> {
+    const encrypted = await AsyncStorage.getItem(key);
+    if (!encrypted) return null;
+
+    try {
+      return await this._decrypt(key, encrypted);
+    } catch {
+      // Key lost (e.g. keychain cleared independently of AsyncStorage) —
+      // drop the now-undecryptable blob instead of looping forever.
+      await this.removeItem(key);
+      return null;
+    }
+  }
+
+  async removeItem(key: string): Promise<void> {
+    await AsyncStorage.removeItem(key);
+    await SecureStore.deleteItemAsync(key);
+  }
+
+  async setItem(key: string, value: string): Promise<void> {
+    const encrypted = await this._encrypt(key, value);
+    await AsyncStorage.setItem(key, encrypted);
+  }
+}
 
 class SupabaseManager {
   private static instance: SupabaseClient | null = null;
@@ -84,7 +142,7 @@ class SupabaseManager {
         },
       };
     } else {
-      return AsyncStorage;
+      return new LargeSecureStore();
     }
   }
 }

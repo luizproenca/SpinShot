@@ -1,3 +1,4 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
 const CLOUD_NAME = Deno.env.get('CLOUDINARY_CLOUD_NAME') ?? '';
@@ -190,10 +191,60 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // ── Auth: every caller must hold a valid Supabase session ─────────────
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: `Bearer ${token}` } } },
+    );
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
+    // isPro is resolved server-side from the authenticated user's own profile —
+    // never trust a client-supplied `isPro` flag (that used to let anyone get
+    // the HD/no-watermark render for free by just sending isPro: true).
+    const { data: profile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('subscription_plan, subscription_status, subscription_expires_at, created_at')
+      .eq('id', user.id)
+      .single();
+
+    const notExpired = !profile?.subscription_expires_at
+      || new Date(profile.subscription_expires_at) > new Date();
+    const hasRealSubscription = !!profile
+      && profile.subscription_plan !== 'free'
+      && (profile.subscription_status === 'active' || profile.subscription_status === 'trial')
+      && notExpired;
+
+    // 30-day "reverse trial" — new accounts get Pro-equivalent rendering with
+    // no payment, mirrored independently here so the client can't fake it.
+    // Keep FREE_WINDOW_DAYS in sync with contexts/PlanContext.tsx.
+    const FREE_WINDOW_DAYS = 30;
+    const isInFreeWindow = !!profile?.created_at
+      && (Date.now() - new Date(profile.created_at).getTime()) < FREE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+    const isPro = hasRealSubscription || isInFreeWindow;
+
     const {
       videoUrl,
-      userId,
-      isPro,
       musicCloudinaryId,
       frameCloudinaryId,
       finalDuration,
@@ -222,7 +273,7 @@ Deno.serve(async (req: Request) => {
       isPro === true ? 'q_auto:best,w_1080' : 'q_auto:good,w_480';
 
     // 1) Upload original video
-    const folder = `spinshot/${userId || 'anonymous'}`;
+    const folder = `spinshot/${user.id}`;
     const publicId = `video_${Date.now()}`;
 
     console.log('Uploading raw video...');

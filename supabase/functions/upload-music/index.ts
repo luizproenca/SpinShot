@@ -20,23 +20,34 @@ async function buildSignature(params: Record<string, string>): Promise<string> {
 /**
  * All music tracks with their source URLs and desired Cloudinary public_ids.
  * The public_id corresponds exactly to the cloudinaryPublicId in constants/music.ts.
+ *
+ * Source: Mixkit Free Stock Music (https://mixkit.co/free-stock-music/,
+ * license: https://mixkit.co/license/ — free for commercial use, no attribution
+ * required; restricted only for CDs/DVDs, video games and broadcast, none of
+ * which apply here). URLs verified to resolve with HTTP 200 before being added.
+ * Original artist credited in `artist` for each track in the seed migration.
+ * Preview playback is capped to 30s via a Cloudinary so_0,eo_30 transformation
+ * (see services/musicService.ts buildCloudinaryPreviewUrl) — the full-length
+ * source file is uploaded once, trimming happens at delivery time.
  */
 const MUSIC_LIBRARY = [
   // ── FREE ──
-  { id: 'party_001',     publicId: 'spinshot/music/party_001',     url: 'https://cdn.pixabay.com/audio/2024/01/02/audio_a68a38dac7.mp3' },
-  { id: 'wedding_001',   publicId: 'spinshot/music/wedding_001',   url: 'https://cdn.pixabay.com/audio/2023/11/13/audio_9b3f29b1dd.mp3' },
-  { id: 'corporate_001', publicId: 'spinshot/music/corporate_001', url: 'https://cdn.pixabay.com/audio/2024/02/15/audio_f9a3b6e123.mp3' },
-  { id: 'chill_001',     publicId: 'spinshot/music/chill_001',     url: 'https://cdn.pixabay.com/audio/2024/03/10/audio_c2d4e8f012.mp3' },
-  { id: 'party_002',     publicId: 'spinshot/music/party_002',     url: 'https://cdn.pixabay.com/audio/2023/12/20/audio_7e9b1c3a56.mp3' },
+  { id: 'party_001',     publicId: 'spinshot/music/party_001',     url: 'https://assets.mixkit.co/music/371/371.mp3' },
+  { id: 'corporate_001', publicId: 'spinshot/music/corporate_001', url: 'https://assets.mixkit.co/music/32/32.mp3' },
+  { id: 'chill_001',     publicId: 'spinshot/music/chill_001',     url: 'https://assets.mixkit.co/music/443/443.mp3' },
   // ── PREMIUM ──
-  { id: 'party_003',     publicId: 'spinshot/music/party_003',     url: 'https://cdn.pixabay.com/audio/2024/04/05/audio_a1b2c3d4e5.mp3' },
-  { id: 'party_004',     publicId: 'spinshot/music/party_004',     url: 'https://cdn.pixabay.com/audio/2024/05/12/audio_b2c3d4e5f6.mp3' },
-  { id: 'wedding_002',   publicId: 'spinshot/music/wedding_002',   url: 'https://cdn.pixabay.com/audio/2024/06/18/audio_c3d4e5f6a7.mp3' },
-  { id: 'wedding_003',   publicId: 'spinshot/music/wedding_003',   url: 'https://cdn.pixabay.com/audio/2024/07/22/audio_d4e5f6a7b8.mp3' },
-  { id: 'corporate_002', publicId: 'spinshot/music/corporate_002', url: 'https://cdn.pixabay.com/audio/2024/08/01/audio_e5f6a7b8c9.mp3' },
-  { id: 'corporate_003', publicId: 'spinshot/music/corporate_003', url: 'https://cdn.pixabay.com/audio/2024/09/15/audio_f6a7b8c9d0.mp3' },
-  { id: 'chill_002',     publicId: 'spinshot/music/chill_002',     url: 'https://cdn.pixabay.com/audio/2024/10/05/audio_a7b8c9d0e1.mp3' },
-  { id: 'chill_003',     publicId: 'spinshot/music/chill_003',     url: 'https://cdn.pixabay.com/audio/2024/11/20/audio_b8c9d0e1f2.mp3' },
+  { id: 'party_002',     publicId: 'spinshot/music/party_002',     url: 'https://assets.mixkit.co/music/339/339.mp3' },
+  { id: 'party_003',     publicId: 'spinshot/music/party_003',     url: 'https://assets.mixkit.co/music/1210/1210.mp3' },
+  { id: 'party_004',     publicId: 'spinshot/music/party_004',     url: 'https://assets.mixkit.co/music/872/872.mp3' },
+  { id: 'wedding_001',   publicId: 'spinshot/music/wedding_001',   url: 'https://assets.mixkit.co/music/657/657.mp3' },
+  { id: 'wedding_002',   publicId: 'spinshot/music/wedding_002',   url: 'https://assets.mixkit.co/music/659/659.mp3' },
+  { id: 'wedding_003',   publicId: 'spinshot/music/wedding_003',   url: 'https://assets.mixkit.co/music/493/493.mp3' },
+  { id: 'wedding_004',   publicId: 'spinshot/music/wedding_004',   url: 'https://assets.mixkit.co/music/39/39.mp3' },
+  { id: 'corporate_002', publicId: 'spinshot/music/corporate_002', url: 'https://assets.mixkit.co/music/587/587.mp3' },
+  { id: 'corporate_003', publicId: 'spinshot/music/corporate_003', url: 'https://assets.mixkit.co/music/759/759.mp3' },
+  { id: 'chill_002',     publicId: 'spinshot/music/chill_002',     url: 'https://assets.mixkit.co/music/127/127.mp3' },
+  { id: 'chill_003',     publicId: 'spinshot/music/chill_003',     url: 'https://assets.mixkit.co/music/139/139.mp3' },
+  { id: 'chill_004',     publicId: 'spinshot/music/chill_004',     url: 'https://assets.mixkit.co/music/695/695.mp3' },
 ];
 
 /**
@@ -110,6 +121,19 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // ── Admin-only: this seeds the music library and burns Cloudinary quota.
+    // It used to have no auth at all — anyone who found the URL could call it
+    // repeatedly. Requires ADMIN_SEED_SECRET as a Bearer token now.
+    const adminSecret = Deno.env.get('ADMIN_SEED_SECRET') ?? '';
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const providedSecret = authHeader.replace('Bearer ', '').trim();
+    if (!adminSecret || providedSecret !== adminSecret) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
       return new Response(
         JSON.stringify({ error: 'Cloudinary credentials not configured' }),

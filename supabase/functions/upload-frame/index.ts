@@ -1,3 +1,4 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
 const CLOUD_NAME = Deno.env.get('CLOUDINARY_CLOUD_NAME') ?? '';
@@ -26,11 +27,33 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { frameUrl, userId, name } = await req.json();
+    // ── Auth: every caller must hold a valid Supabase session ─────────────
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    if (!frameUrl || !userId) {
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: `Bearer ${token}` } } },
+    );
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { frameUrl } = await req.json();
+
+    if (!frameUrl) {
       return new Response(
-        JSON.stringify({ error: 'frameUrl and userId are required' }),
+        JSON.stringify({ error: 'frameUrl is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -42,7 +65,10 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const folder = `spinshot_frames/${userId}`;
+    // Use the authenticated user's own id for the storage folder — never a
+    // client-supplied userId (that used to let anyone write into another
+    // user's spinshot_frames/<victim>/ folder).
+    const folder = `spinshot_frames/${user.id}`;
     const publicId = `frame_${Date.now()}`;
     const timestamp = String(Math.floor(Date.now() / 1000));
 

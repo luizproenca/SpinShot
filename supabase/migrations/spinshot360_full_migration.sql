@@ -32,6 +32,11 @@ create table if not exists public.user_profiles (
   subscription_expires_at timestamptz,
   purchase_token          text,
   store_platform          text,
+  -- Signup date — anchors the 30-day "reverse trial" free window (see
+  -- FREE_WINDOW_DAYS in contexts/PlanContext.tsx and
+  -- supabase/functions/process-video/index.ts). Populated from
+  -- auth.users.created_at by handle_new_user(), not the column default.
+  created_at              timestamptz   not null default now(),
 
   constraint user_profiles_pkey primary key (id)
 );
@@ -159,7 +164,7 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.user_profiles (id, email, username)
+  insert into public.user_profiles (id, email, username, created_at)
   values (
     new.id,
     new.email,
@@ -167,7 +172,8 @@ begin
       new.raw_user_meta_data->>'username',
       new.raw_user_meta_data->>'name',
       split_part(new.email, '@', 1)
-    )
+    ),
+    new.created_at
   )
   on conflict (id) do nothing;
   return new;
@@ -506,13 +512,16 @@ create index if not exists idx_music_tracks_category   on public.music_tracks(ca
 --    supabase functions deploy upload-music
 --    supabase functions deploy validate-purchase
 --
--- 2. Set secrets via Supabase CLI:
---    supabase secrets set CLOUDINARY_CLOUD_NAME=djfbrkwkz
---    supabase secrets set CLOUDINARY_API_KEY=181772372845664
---    supabase secrets set CLOUDINARY_API_SECRET=-XPgqqpEwvd0nJlKtwUuWxumiCA
---    supabase secrets set REVENUECAT_API_KEY=sk_BzJGWaJdjtIbfEWpUCfvEhYydUxbF
---    supabase secrets set EXPO_PUBLIC_RC_IOS_KEY=appl_ZfnzCLOiutECEtkyJzxiSzqMjGF
---    supabase secrets set EXPO_PUBLIC_RC_ANDROID_KEY=goog_yqVIoIHBoMuMfMnzlyGZCIyYcIN
+-- 2. Set secrets via Supabase CLI (get the real values from the Cloudinary /
+--    RevenueCat dashboards — NEVER commit real secret values to git; this
+--    file used to have real keys hardcoded here, which is why they must be
+--    rotated — see SECURITY_TODO.md):
+--    supabase secrets set CLOUDINARY_CLOUD_NAME=<your-cloud-name>
+--    supabase secrets set CLOUDINARY_API_KEY=<your-cloudinary-api-key>
+--    supabase secrets set CLOUDINARY_API_SECRET=<your-cloudinary-api-secret>
+--    supabase secrets set REVENUECAT_API_KEY=<your-revenuecat-secret-key>
+--    supabase secrets set EXPO_PUBLIC_RC_IOS_KEY=<your-revenuecat-ios-public-key>
+--    supabase secrets set EXPO_PUBLIC_RC_ANDROID_KEY=<your-revenuecat-android-public-key>
 --
 -- 3. Update .env in the app:
 --    EXPO_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co

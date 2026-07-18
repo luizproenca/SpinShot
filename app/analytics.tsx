@@ -27,6 +27,9 @@ interface AnalyticsData {
   dailyDownloads: DayData[];
   topEvents: EventData[];
   peakHours: HourData[];
+  allTimeDownloads: number;
+  allTimeVideos: number;
+  allTimeEvents: number;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -204,6 +207,20 @@ export default function AnalyticsScreen() {
 
       const rows = videos || [];
 
+      // ── All-time totals (no date filter) — gives sporadic users (e.g.
+      // weddings every few months) a sense of accumulated progress even
+      // when the last 30 days are empty. ──────────────────────────────
+      const { data: allTimeRows, error: allTimeError } = await supabase
+        .from('videos')
+        .select('downloads, event_id')
+        .eq('user_id', user.id);
+
+      if (allTimeError) throw allTimeError;
+
+      const allTimeDownloads = (allTimeRows || []).reduce((s, r) => s + (r.downloads || 0), 0);
+      const allTimeVideos = (allTimeRows || []).length;
+      const allTimeEvents = new Set((allTimeRows || []).map(r => r.event_id)).size;
+
       // ── Totals ────────────────────────────────────────────────────────
       const totalDownloads = rows.reduce((s, r) => s + (r.downloads || 0), 0);
       const totalVideos = rows.length;
@@ -257,6 +274,9 @@ export default function AnalyticsScreen() {
         dailyDownloads,
         topEvents,
         peakHours,
+        allTimeDownloads,
+        allTimeVideos,
+        allTimeEvents,
       });
 
       Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
@@ -318,6 +338,27 @@ export default function AnalyticsScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
+          {/* ── All-time totals ── */}
+          <LinearGradient colors={['#7C3AED22', '#4F46E512']} style={styles.allTimeCard}>
+            <Text style={styles.allTimeTitle}>{t.analytics.allTimeTitle}</Text>
+            <View style={styles.allTimeRow}>
+              <View style={styles.allTimeItem}>
+                <Text style={styles.allTimeValue}>{data?.allTimeEvents ?? 0}</Text>
+                <Text style={styles.allTimeLabel}>{t.analytics.allTimeEvents}</Text>
+              </View>
+              <View style={styles.allTimeDivider} />
+              <View style={styles.allTimeItem}>
+                <Text style={styles.allTimeValue}>{data?.allTimeVideos ?? 0}</Text>
+                <Text style={styles.allTimeLabel}>{t.analytics.allTimeVideos}</Text>
+              </View>
+              <View style={styles.allTimeDivider} />
+              <View style={styles.allTimeItem}>
+                <Text style={styles.allTimeValue}>{data?.allTimeDownloads ?? 0}</Text>
+                <Text style={styles.allTimeLabel}>{t.analytics.allTimeDownloads}</Text>
+              </View>
+            </View>
+          </LinearGradient>
+
           {/* Period label */}
           <View style={styles.periodRow}>
             <MaterialIcons name="date-range" size={14} color={Colors.TextMuted} />
@@ -502,6 +543,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6,
   },
   periodText: { color: Colors.TextMuted, fontSize: FontSize.xs },
+
+  allTimeCard: {
+    borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.Primary + '33',
+    padding: Spacing.md, gap: Spacing.sm,
+  },
+  allTimeTitle: {
+    fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.TextMuted,
+    textTransform: 'uppercase', letterSpacing: 0.8, textAlign: 'center',
+  },
+  allTimeRow: { flexDirection: 'row', alignItems: 'center' },
+  allTimeItem: { flex: 1, alignItems: 'center', gap: 2 },
+  allTimeValue: { fontSize: FontSize.xxl, fontWeight: FontWeight.extrabold, color: Colors.TextPrimary },
+  allTimeLabel: { fontSize: 10, color: Colors.TextSubtle, textAlign: 'center' },
+  allTimeDivider: { width: 1, height: 32, backgroundColor: Colors.Border },
 
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   statCard: {

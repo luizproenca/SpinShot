@@ -524,7 +524,7 @@ function ConfigSheet({
             <View style={styles.segmentedGroup}>
               {RECORDING_DURATIONS.map((d, i) => {
                 const isSelected = duration === d.value;
-                const isLocked = !isPro && d.value > 10;
+                const isLocked = false;
                 return (
                   <Pressable
                     key={d.value}
@@ -742,7 +742,7 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { activeEvent, events, setActiveEvent } = useEvents();
   const { t, language } = useLanguage();
-  const { isPro, showPaywall, subscription, isTrial } = usePlan();
+  const { isPro, showPaywall, subscription, isTrial, isInFreeWindow, freeWindowDaysLeft } = usePlan();
   const { freeTracks, premiumTracks, loading: musicLoading, getAuto } = useMusic();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -866,7 +866,7 @@ export default function HomeScreen() {
       try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
     }
 
-    const effectiveDuration = (!isPro && duration > 10) ? 10 : duration;
+    const effectiveDuration = duration;
 
     router.push({
       pathname: '/recording',
@@ -903,13 +903,6 @@ export default function HomeScreen() {
   };
 
   const handleDurationSelect = (d: number) => {
-    const isLocked = !isPro && d > 10;
-
-    if (isLocked) {
-      openPaywallFromConfig('duration');
-      return;
-    }
-
     setDuration(d);
   };
 
@@ -928,9 +921,17 @@ export default function HomeScreen() {
   };
 
   const subscriptionBanner = React.useMemo(() => {
+    if (isInFreeWindow) {
+      const msgs: Record<string, string> = {
+        pt: `Acesso completo grátis: ${freeWindowDaysLeft} dia(s) restantes`,
+        en: `Full free access: ${freeWindowDaysLeft} day(s) left`,
+        es: `Acceso completo gratis: ${freeWindowDaysLeft} día(s) restantes`,
+      };
+      return { type: 'free_window' as const, label: msgs[language] ?? msgs.pt };
+    }
     if (!isPro && !isTrial) return null;
     if (isTrial) {
-      const days = getTrialRemainingDays(subscription.trialStartAt);
+      const days = getTrialRemainingDays(subscription.trialStartAt, subscription.plan);
       const msgs: Record<string, string> = {
         pt: `Teste grátis: ${days} dias restantes`,
         en: `Free trial: ${days} days left`,
@@ -948,7 +949,7 @@ export default function HomeScreen() {
       return { type: 'pro' as const, expiresAt: expiry, label: msgs[language] ?? msgs.pt };
     }
     return null;
-  }, [isPro, isTrial, subscription, language]);
+  }, [isPro, isTrial, isInFreeWindow, freeWindowDaysLeft, subscription, language]);
 
   return (
     <LinearGradient colors={['#0D0820', '#0A0F2E', '#0D0820']} style={styles.container}>
@@ -961,13 +962,13 @@ export default function HomeScreen() {
           style={[
             styles.subscriptionBanner,
             { top: insets.top + 6 },
-            subscriptionBanner.type === 'trial'
-              ? styles.subscriptionBannerTrial
-              : styles.subscriptionBannerPro,
+            subscriptionBanner.type === 'pro'
+              ? styles.subscriptionBannerPro
+              : styles.subscriptionBannerTrial,
           ]}
           onPress={() => {
-            if (subscriptionBanner.type === 'trial') {
-              showPaywall('generic');
+            if (subscriptionBanner.type === 'pro') {
+              router.push('/subscription');
             } else {
               router.push('/subscription');
             }
@@ -975,31 +976,31 @@ export default function HomeScreen() {
         >
           <LinearGradient
             colors={
-              subscriptionBanner.type === 'trial'
-                ? ['#F59E0B18', '#EF444418']
-                : ['#10B98118', '#05966918']
+              subscriptionBanner.type === 'pro'
+                ? ['#10B98118', '#05966918']
+                : ['#F59E0B18', '#EF444418']
             }
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={styles.subscriptionBannerGrad}
           >
             <MaterialIcons
-              name={subscriptionBanner.type === 'trial' ? 'celebration' : 'star'}
+              name={subscriptionBanner.type === 'pro' ? 'star' : subscriptionBanner.type === 'free_window' ? 'card-giftcard' : 'celebration'}
               size={13}
-              color={subscriptionBanner.type === 'trial' ? '#F59E0B' : '#10B981'}
+              color={subscriptionBanner.type === 'pro' ? '#10B981' : '#F59E0B'}
             />
             <Text
               style={[
                 styles.subscriptionBannerText,
-                { color: subscriptionBanner.type === 'trial' ? '#F59E0B' : '#10B981' },
+                { color: subscriptionBanner.type === 'pro' ? '#10B981' : '#F59E0B' },
               ]}
               numberOfLines={1}
             >
               {subscriptionBanner.label}
             </Text>
-            {subscriptionBanner.type === 'trial' && (
+            {subscriptionBanner.type !== 'pro' && (
               <View style={styles.subscriptionBannerCta}>
                 <Text style={styles.subscriptionBannerCtaText}>
-                  {language === 'en' ? 'Subscribe now' : language === 'es' ? 'Suscribirse' : 'Assinar agora'}
+                  {language === 'en' ? 'See plans' : language === 'es' ? 'Ver planes' : 'Ver planos'}
                 </Text>
               </View>
             )}

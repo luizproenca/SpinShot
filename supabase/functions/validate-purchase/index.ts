@@ -219,79 +219,20 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── ACTIVATE — fallback for web / testing ─────────────────────────────────
+    // ── ACTIVATE — disabled. There is no IAP free trial anymore (removed in
+    // favor of the 30-day reverse-trial window every new account already
+    // gets from signup — see FREE_WINDOW_DAYS in contexts/PlanContext.tsx).
+    // This action used to grant a free trial/active subscription with zero
+    // payment verification; since there's no legitimate free grant left to
+    // hand out here and no real web payment processor is wired up, it's now
+    // a hard no-op. Real paid subscriptions only ever come from the mobile
+    // IAP flow (rc_validate/check, verified against the RevenueCat REST API)
+    // or rc-webhook (signed RevenueCat server events).
     if (action === 'activate') {
-      const { productId, purchaseToken, platform } = body;
-
-      if (!productId) {
-        return new Response(JSON.stringify({ error: 'productId required' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const planMap: Record<string, string> = {
-        'pro_monthly': 'pro_monthly',
-        'pro_annual':  'pro_annual',
-      };
-      const plan = planMap[productId];
-      if (!plan) {
-        return new Response(JSON.stringify({ error: 'Unknown product' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const now = new Date();
-      let expiresAt: Date;
-      if (plan === 'pro_monthly') {
-        expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      } else {
-        expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
-      }
-
-      const { data: existingProfile } = await supabaseAdmin
-        .from('user_profiles')
-        .select('trial_start_at')
-        .eq('id', user.id)
-        .single();
-
-      const isFirstTime = !existingProfile?.trial_start_at;
-      const isTrial = plan === 'pro_annual' && isFirstTime;
-
-      const updateData: Record<string, any> = {
-        subscription_plan:       plan,
-        subscription_status:     isTrial ? 'trial' : 'active',
-        subscription_expires_at: expiresAt.toISOString(),
-        purchase_token:          purchaseToken || null,
-        store_platform:          platform || 'unknown',
-      };
-
-      if (isTrial) {
-        updateData.trial_start_at = now.toISOString();
-        updateData.subscription_expires_at = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      }
-
-      const { error: updateError } = await supabaseAdmin
-        .from('user_profiles')
-        .update(updateData)
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
-      await supabaseAdmin.from('subscription_events').insert({
-        user_id:        user.id,
-        event_type:     isTrial ? 'trial_started' : 'subscription_activated',
-        plan,
-        platform:       platform || 'unknown',
-        purchase_token: purchaseToken || null,
-      });
-
       return new Response(JSON.stringify({
-        success:   true,
-        plan,
-        status:    isTrial ? 'trial' : 'active',
-        expiresAt: expiresAt.toISOString(),
-        isTrial,
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        success: false,
+        error: 'Web checkout is not available. Subscribe from the SpinShot mobile app.',
+      }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // ── CANCEL ────────────────────────────────────────────────────────────────

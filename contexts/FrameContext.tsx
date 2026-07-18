@@ -1,4 +1,4 @@
-import React, { createContext, useState, useCallback, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useContext, ReactNode } from 'react';
 import { VideoFrame } from '../services/types';
 import { frameService } from '../services/frameService';
 import { AuthContext } from './AuthContext';
@@ -35,6 +35,18 @@ export function FrameProvider({ children }: { children: ReactNode }) {
       console.error('Failed to load frames:', e);
     } finally {
       setIsLoading(false);
+    }
+  }, [user]);
+
+  // Mirrors EventContext/VideoContext — auto-load on login, clear on logout
+  // (this used to only happen lazily via a one-shot effect in useFrames(),
+  // which never re-ran when switching accounts on the same device).
+  useEffect(() => {
+    if (user) {
+      refreshFrames();
+    } else {
+      setFrames([]);
+      setSelectedFrameId(null);
     }
   }, [user]);
 

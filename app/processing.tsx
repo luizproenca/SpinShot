@@ -64,20 +64,27 @@ function pickFinalVideoUrl(video: any, originalLocalUri?: string | null) {
   return null;
 }
 
-async function waitForFinalVideoReady(url: string) {
+async function waitForFinalVideoReady(url: string, signal?: AbortSignal) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < FINAL_VIDEO_WAIT_TIMEOUT_MS) {
+    if (signal?.aborted) {
+      throw new Error('Operação cancelada.');
+    }
+
     try {
       const response = await fetch(url, {
         method: 'HEAD',
         cache: 'no-store',
+        signal,
       });
 
       if (response.ok || response.status === 405) {
         return true;
       }
-    } catch {}
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw new Error('Operação cancelada.');
+    }
 
     await delay(FINAL_VIDEO_POLL_INTERVAL_MS);
   }
@@ -119,6 +126,7 @@ export default function ProcessingScreen() {
   const musicTracksRef = useRef<MusicTrack[]>(musicTracks);
   const musicLoadingRef = useRef<boolean>(musicLoading);
   const cancelledRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     musicTracksRef.current = musicTracks;
@@ -133,6 +141,8 @@ export default function ProcessingScreen() {
     const supabase = getSupabaseClient();
 
     cancelledRef.current = false;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     Animated.timing(fadeAnim, {
       toValue: 1,
@@ -194,8 +204,11 @@ export default function ProcessingScreen() {
             musicTracks: musicTracksRef.current,
             frameCloudinaryId: frameCloudinaryId || null,
           },
-          () => {}
+          () => {},
+          controller.signal,
         );
+
+        if (cancelledRef.current) return;
 
         const finalVideoUrl = pickFinalVideoUrl(video as any, localVideoUri || null);
 
@@ -203,7 +216,7 @@ export default function ProcessingScreen() {
           throw new Error('Não foi possível encontrar a URL final do vídeo processado.');
         }
 
-        await waitForFinalVideoReady(finalVideoUrl);
+        await waitForFinalVideoReady(finalVideoUrl, controller.signal);
 
         if (cancelledRef.current) return;
 
@@ -256,6 +269,7 @@ export default function ProcessingScreen() {
 
     return () => {
       cancelledRef.current = true;
+      abortControllerRef.current?.abort();
     };
   }, []);
 

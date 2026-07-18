@@ -126,6 +126,7 @@ function PlanCard({
   rcPrice,
   loading,
   savingsPercent,
+  hasIntroOffer,
 }: {
   productId: IAPProductId;
   isSelected: boolean;
@@ -135,6 +136,7 @@ function PlanCard({
   rcPrice: string;
   loading?: boolean;
   savingsPercent?: number | null;
+  hasIntroOffer?: boolean;
 }) {
   const isAnnual = productId === 'spinshot_pro_annual';
 
@@ -192,6 +194,15 @@ function PlanCard({
             <Text style={[styles.savingsText, isSelected && { color: '#E9FCD4' }]}>
               Economize {savingsPercent}%
             </Text>
+          )}
+
+          {hasIntroOffer && (
+            <View style={styles.trialBadge}>
+              <MaterialIcons name="card-giftcard" size={11} color={isSelected ? '#fff' : Colors.Success} />
+              <Text style={[styles.trialBadgeText, isSelected && { color: '#fff' }]}>
+                Teste grátis incluso
+              </Text>
+            </View>
           )}
 
           {isSelected && (
@@ -471,6 +482,7 @@ export default function PaywallModal() {
                   t={t}
                   loading={false}
                   rcPrice={monthlyPrice}
+                  hasIntroOffer={!!monthlyPkg?.introPrice}
                 />
               )}
 
@@ -484,6 +496,7 @@ export default function PaywallModal() {
                   loading={false}
                   rcPrice={annualPrice}
                   savingsPercent={savingsPercent}
+                  hasIntroOffer={!!annualPkg?.introPrice}
                 />
               )}
             </View>
@@ -800,6 +813,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: FontWeight.bold,
     marginTop: 2,
+  },
+
+  trialBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  trialBadgeText: {
+    color: Colors.Success,
+    fontSize: 10,
+    fontWeight: FontWeight.semibold,
   },
 
   selectedCheck: {

@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../services/types';
 import { authService } from '../services/authService';
 import { getSupabaseClient } from '@/template';
+import { registerForPushNotifications, unregisterCurrentDevicePushToken } from '../services/pushNotificationService';
 
 interface AuthContextType {
   user: User | null;
@@ -99,6 +100,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (user?.id) {
+      void registerForPushNotifications(user.id);
+    }
+  }, [user?.id]);
+
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
@@ -135,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     setIsLoading(true);
     try {
+      await unregisterCurrentDevicePushToken();
       await authService.logout();
       setUser(null);
     } finally {

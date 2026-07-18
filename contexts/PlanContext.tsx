@@ -29,6 +29,11 @@ export interface PlanContextType {
   isTrial: boolean;
   subscriptionLoading: boolean;
 
+  // "Reverse trial" — first FREE_WINDOW_DAYS days after signup, free
+  // accounts get full Pro-equivalent access with no payment required.
+  isInFreeWindow: boolean;
+  freeWindowDaysLeft: number;
+
   // RC packages (real prices from store)
   rcPackages: RC.RCPackage[];
   rcPackagesLoading: boolean;
@@ -77,7 +82,7 @@ export const FREE_RULES: PlanRules = {
   maxEvents: 1,
   hasWatermark: true,
   maxExportQuality: '480p',
-  maxDurationSeconds: 10,
+  maxDurationSeconds: Infinity,
   allowPremiumFrames: false,
   allowPremiumMusic: false,
   allowFrameUpload: false,
@@ -124,6 +129,25 @@ const DEFAULT_SUBSCRIPTION: SubscriptionState = {
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 
+// New accounts get full Pro-equivalent access for this many days from signup
+// (a "reverse trial" — no payment method required, replaces the old IAP
+// free-trial period). Keep this value in sync with FREE_WINDOW_DAYS in
+// supabase/functions/process-video/index.ts, which independently enforces
+// the same window server-side (never trust the client for this).
+const FREE_WINDOW_DAYS = 30;
+
+function computeFreeWindow(createdAt: string | undefined | null): { isInFreeWindow: boolean; freeWindowDaysLeft: number } {
+  if (!createdAt) return { isInFreeWindow: false, freeWindowDaysLeft: 0 };
+
+  const signupTime = new Date(createdAt).getTime();
+  if (Number.isNaN(signupTime)) return { isInFreeWindow: false, freeWindowDaysLeft: 0 };
+
+  const elapsedDays = (Date.now() - signupTime) / (24 * 60 * 60 * 1000);
+  const daysLeft = Math.max(0, Math.ceil(FREE_WINDOW_DAYS - elapsedDays));
+
+  return { isInFreeWindow: daysLeft > 0, freeWindowDaysLeft: daysLeft };
+}
+
 const RC_PRODUCT_MAP: Record<IAPProductId, { identifiers: string[]; productIdentifier: string }> = {
   spinshot_pro_monthly: {
     identifiers: ['$rc_monthly', 'pro_monthly'],
@@ -150,7 +174,6 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
 
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rcListenerUnsubRef = useRef<(() => void) | null>(null);
-  const didInitRefresh = useRef(false);
 
   // ── Load cache ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -300,20 +323,21 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     });
   }, [applySubscriptionData, persistSubscription]);
 
-  // ── Init RC when user logs in ─────────────────────────────────────────
+  // ── Init RC + refresh + listener — re-runs (with full teardown) every time
+  // the logged-in user changes, not just once. It used to only run once ever
+  // (guarded by a ref), so logging out and into a different account on the
+  // same device kept the *previous* user's RevenueCat listener and refresh
+  // timer alive, which could briefly apply stale subscription data to the
+  // new account until the next manual refresh corrected it.
   useEffect(() => {
+    if (!loaded) return;
+
     if (authUser?.id) {
       RC.initRevenueCat(authUser.id).catch(() => {});
     } else {
       RC.logOutRevenueCat().catch(() => {});
       setRcPackages([]);
     }
-  }, [authUser?.id]);
-
-  // ── One-time init after cache loads ──────────────────────────────────
-  useEffect(() => {
-    if (!loaded || didInitRefresh.current) return;
-    didInitRefresh.current = true;
 
     refreshSubscription();
     setupRCListener();
@@ -326,8 +350,9 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
       rcListenerUnsubRef.current?.();
+      rcListenerUnsubRef.current = null;
     };
-  }, [loaded, refreshSubscription, setupRCListener, loadRCPackages]);
+  }, [loaded, authUser?.id, refreshSubscription, setupRCListener, loadRCPackages]);
 
   // ── Purchase via RevenueCat SDK ───────────────────────────────────────
   const purchasePlan = useCallback(async (
@@ -498,7 +523,8 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     console.warn('[PlanContext] setPlan is deprecated, use purchasePlan instead');
   }, []);
 
-  const isPro = subscription.isPro;
+  const { isInFreeWindow, freeWindowDaysLeft } = computeFreeWindow(authUser?.createdAt);
+  const isPro = subscription.isPro || isInFreeWindow;
 
   return (
     <PlanContext.Provider
@@ -507,6 +533,9 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
         isPro,
         isTrial: subscription.isTrial,
         subscriptionLoading,
+
+        isInFreeWindow,
+        freeWindowDaysLeft,
 
         rcPackages,
         rcPackagesLoading,

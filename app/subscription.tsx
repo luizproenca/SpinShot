@@ -139,7 +139,7 @@ export default function SubscriptionScreen() {
   const isExpired = subscription.status === 'expired' || subscription.status === 'cancelled';
   const isCancelled = subscription.status === 'cancelled';
 
-  const trialDaysLeft = getTrialRemainingDays(subscription.trialStartAt);
+  const trialDaysLeft = getTrialRemainingDays(subscription.trialStartAt, subscription.plan);
   const expiryFormatted = formatExpiryDate(subscription.expiresAt, language);
 
   const planLabel = isPro

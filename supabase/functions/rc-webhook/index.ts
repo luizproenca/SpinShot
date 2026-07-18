@@ -169,18 +169,29 @@ function buildSyncResult(event: RCWebhookEvent['event']): SyncResult | null {
 
 // ─── Verify webhook authorization ─────────────────────────────────────────────
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
 function verifyAuthorization(req: Request): boolean {
   const webhookSecret = Deno.env.get('REVENUECAT_WEBHOOK_SECRET');
 
-  // If no secret is configured, allow (dev mode) — log a warning
+  // Fail CLOSED if no secret is configured — this used to fail open ("allow
+  // if no secret set"), which meant the webhook had no real auth at all,
+  // since REVENUECAT_WEBHOOK_SECRET was never actually set.
   if (!webhookSecret) {
-    console.warn('[rc-webhook] REVENUECAT_WEBHOOK_SECRET not set — skipping auth verification');
-    return true;
+    console.error('[rc-webhook] REVENUECAT_WEBHOOK_SECRET not set — rejecting all requests');
+    return false;
   }
 
   const authHeader = req.headers.get('Authorization') ?? '';
   const token = authHeader.replace('Bearer ', '').trim();
-  return token === webhookSecret;
+  return timingSafeEqual(token, webhookSecret);
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────

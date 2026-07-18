@@ -82,10 +82,11 @@ export default function OnboardingScreen() {
     >
       <Animated.View style={[styles.inner, { opacity: fadeAnim }]}>
 
-        {/* Skip */}
+        {/* Skip — hidden on the first slide so there's at least one exposure
+            to the product's value before the user can bail out. */}
         <View style={styles.topBar}>
           <View />
-          {!isLast && (
+          {currentIndex > 0 && !isLast && (
             <Pressable onPress={handleStart} hitSlop={12}>
               <Text style={styles.skipText}>{t.onboarding.skip}</Text>
             </Pressable>

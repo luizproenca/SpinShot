@@ -6,6 +6,8 @@ import { MusicSelection } from '../constants/music';
 import { resolveMusicForProcessing } from './musicService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { calculateDurationPlan, VideoPreset } from './videoEffectsService';
+import * as FileSystem from 'expo-file-system/legacy';
+import NetInfo from '@react-native-community/netinfo';
 
 async function getStoredIsPro(): Promise<boolean> {
   try {
@@ -121,7 +123,39 @@ function isProcessableLocalVideoUri(uri?: string | null): uri is string {
   );
 }
 
-async function uploadVideoToStorage(userId: string, localUri: string): Promise<string> {
+function getStoragePathFromPublicUrl(publicUrl: string): string | null {
+  try {
+    const url = new URL(publicUrl);
+    const pathParts = url.pathname.split(`/${STORAGE_BUCKET}/`);
+    return pathParts[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteLocalFile(localUri: string): Promise<void> {
+  try {
+    const normalized = normalizeLocalVideoUri(localUri);
+    if (!normalized.startsWith('file://')) return;
+    await FileSystem.deleteAsync(normalized, { idempotent: true });
+  } catch (err) {
+    console.warn('[videoService] failed to delete local temp video:', err);
+  }
+}
+
+async function deleteStorageObject(fileName: string): Promise<void> {
+  try {
+    await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
+  } catch (err) {
+    console.warn('[videoService] failed to delete intermediate storage object:', err);
+  }
+}
+
+async function uploadVideoToStorage(
+  userId: string,
+  localUri: string,
+  signal?: AbortSignal,
+): Promise<{ publicUrl: string; fileName: string }> {
   const normalizedUri = normalizeLocalVideoUri(localUri);
   const fileExt = getVideoFileExtension(normalizedUri);
   const fileName = `${userId}/${Date.now()}.${fileExt}`;
@@ -134,7 +168,7 @@ async function uploadVideoToStorage(userId: string, localUri: string): Promise<s
     localUri: normalizedUri,
   });
 
-  const fileResponse = await fetch(normalizedUri);
+  const fileResponse = await fetch(normalizedUri, { signal });
 
   if (!fileResponse.ok) {
     throw new Error(`Falha ao ler arquivo local: ${fileResponse.status}`);
@@ -173,7 +207,7 @@ async function uploadVideoToStorage(userId: string, localUri: string): Promise<s
     publicUrl: data.publicUrl,
   });
 
-  return data.publicUrl;
+  return { publicUrl: data.publicUrl, fileName };
 }
 
 async function processVideoWithEffects(
@@ -234,22 +268,29 @@ async function processVideoWithEffects(
   };
 }
 
-async function waitForRemoteVideoReady(url: string): Promise<void> {
+async function waitForRemoteVideoReady(url: string, signal?: AbortSignal): Promise<void> {
   const timeoutMs = 90000;
   const intervalMs = 2500;
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
+    if (signal?.aborted) {
+      throw new Error('Operação cancelada.');
+    }
+
     try {
       const response = await fetch(url, {
         method: 'HEAD',
         cache: 'no-store',
+        signal,
       });
 
       if (response.ok || response.status === 405) {
         return;
       }
-    } catch {}
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw new Error('Operação cancelada.');
+    }
 
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
@@ -279,6 +320,7 @@ export const videoService = {
       frameCloudinaryId?: string | null;
     },
     onProgress?: (step: 'uploading' | 'processing' | 'saving') => void,
+    signal?: AbortSignal,
   ): Promise<Video> {
     if (!data.videoUri) {
       throw new Error('Nenhum vídeo foi informado para processamento.');
@@ -292,11 +334,21 @@ export const videoService = {
       throw new Error('O vídeo precisa ser uma URI local válida antes do processamento.');
     }
 
+    const netState = await NetInfo.fetch();
+    if (netState.isConnected === false || netState.isInternetReachable === false) {
+      throw new Error('Sem conexão com a internet. Verifique sua rede e tente novamente.');
+    }
+
     const localSourceUri = normalizeLocalVideoUri(data.videoUri);
     const shareCode = Math.random().toString(36).slice(2, 8);
 
     onProgress?.('uploading');
-    const storageUrl = await uploadVideoToStorage(userId, localSourceUri);
+    const { publicUrl: storageUrl, fileName: storageFileName } =
+      await uploadVideoToStorage(userId, localSourceUri, signal);
+
+    // The on-device recording has now been safely uploaded — it's never
+    // read again after this point, so free up the device's storage.
+    await deleteLocalFile(localSourceUri);
 
     onProgress?.('processing');
     const isPro = await getStoredIsPro();
@@ -318,7 +370,11 @@ export const videoService = {
       data.duration || 10,
     );
 
-    await waitForRemoteVideoReady(processed.processedUrl);
+    await waitForRemoteVideoReady(processed.processedUrl, signal);
+
+    // Cloudinary already fetched + materialized the final video — the
+    // intermediate Supabase Storage copy was only needed to get it there.
+    await deleteStorageObject(storageFileName);
 
     onProgress?.('saving');
 
@@ -356,17 +412,14 @@ export const videoService = {
       .from('videos')
       .select('video_url')
       .eq('id', videoId)
+      .eq('user_id', userId)
       .single();
 
     if (video?.video_url) {
-      try {
-        const url = new URL(video.video_url);
-        const pathParts = url.pathname.split(`/${STORAGE_BUCKET}/`);
-
-        if (pathParts[1]) {
-          await supabase.storage.from(STORAGE_BUCKET).remove([pathParts[1]]);
-        }
-      } catch {}
+      const storagePath = getStoragePathFromPublicUrl(video.video_url);
+      if (storagePath) {
+        await deleteStorageObject(storagePath);
+      }
     }
 
     const { error } = await supabase

@@ -1,0 +1,8 @@
+** BUILD FAILED **
+
+
+The following build commands failed:
+	PhaseScriptExecution [CP-User]\ [Hermes]\ Replace\ Hermes\ for\ the\ right\ configuration,\ if\ needed /Users/luizhp/Library/Developer/Xcode/DerivedData/SpinShot-ehxljfmordkkweaoiwtzdnsxhhfd/Build/Intermediates.noindex/Pods.build/Debug-iphoneos/hermes-engine.build/Script-46EB2E000353B0.sh (in target 'hermes-engine' from project 'Pods')
+	PhaseScriptExecution [CP-User]\ [RNDeps]\ Replace\ React\ Native\ Dependencies\ for\ the\ right\ configuration,\ if\ needed /Users/luizhp/Library/Developer/Xcode/DerivedData/SpinShot-ehxljfmordkkweaoiwtzdnsxhhfd/Build/Intermediates.noindex/Pods.build/Debug-iphoneos/ReactNativeDependencies.build/Script-46EB2E00035390.sh (in target 'ReactNativeDependencies' from project 'Pods')
+	Building workspace SpinShot with scheme SpinShot and configuration Debug
+(3 failures)

@@ -4,6 +4,7 @@
  */
 
 import { Platform } from 'react-native';
+import type { SubscriptionPlan } from '../contexts/PlanContext';
 
 export type PurchasePlatform = 'ios' | 'android' | 'web';
 
@@ -37,14 +38,18 @@ export function formatExpiryDate(isoString: string | null, lang: string = 'pt'):
 }
 
 /**
- * Get remaining trial days from trialStartAt (trial lasts 30 days).
+ * Get remaining trial days. Monthly plan = 7 days, annual = 30 days.
  */
-export function getTrialRemainingDays(trialStartAt: string | null): number {
+export function getTrialRemainingDays(
+  trialStartAt: string | null,
+  plan?: SubscriptionPlan,
+): number {
   if (!trialStartAt) return 0;
 
   try {
+    const trialDays = plan === 'pro_monthly' ? 7 : 30;
     const startMs = new Date(trialStartAt).getTime();
-    const trialEndMs = startMs + 30 * 24 * 60 * 60 * 1000;
+    const trialEndMs = startMs + trialDays * 24 * 60 * 60 * 1000;
     const remaining = Math.ceil((trialEndMs - Date.now()) / (1000 * 60 * 60 * 24));
     return Math.max(0, remaining);
   } catch {

@@ -145,12 +145,24 @@ on conflict do nothing;
 --   (party_001, wedding_001, chill_001, corporate_001, etc.)
 --
 -- The app builds the preview URL at runtime from cloudinary_public_id:
---   https://res.cloudinary.com/<cloud>/video/upload/<cloudinary_public_id>.mp3
+--   https://res.cloudinary.com/<cloud>/video/upload/so_0,eo_30/<cloudinary_public_id>.mp3
+-- (so_0,eo_30 caps preview playback at 30s — see buildCloudinaryPreviewUrl()).
 -- So preview_url can be null — it is computed by buildCloudinaryPreviewUrl().
 --
--- IMPORTANT: Upload your .mp3 files to Cloudinary and replace
--- the cloudinary_public_id placeholders with your real values.
+-- Real tracks (15 total: 3 free + 12 premium), sourced from Mixkit Free
+-- Stock Music (https://mixkit.co/free-stock-music/) — free for commercial
+-- use, no attribution required (https://mixkit.co/license/). `artist` below
+-- credits the real Mixkit composer. Run supabase/functions/upload-music
+-- (with real CLOUDINARY_* secrets configured) BEFORE this script, so that
+-- cloudinary_public_id actually resolves to uploaded audio.
+--
+-- This insert is an UPSERT (on conflict do update) so re-running it also
+-- repairs any rows previously seeded with placeholder data.
 -- ===========================================================
+
+-- corporate_004 existed in the old placeholder seed; the real library only
+-- has 3 corporate tracks, so drop it if it was inserted previously.
+delete from public.music_tracks where id = 'corporate_004';
 
 insert into public.music_tracks
   (id, title, artist, category, emoji, cloudinary_public_id, preview_url, duration, bpm, is_premium)
@@ -160,107 +172,104 @@ values
 
   (
     'party_001',
-    'Festival Energy',
-    'SpinShot Beats',
+    'Cat Walk',
+    'Arulo',
     'party',
     '🎉',
-    'spinshot/music/party_001',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/party_001',
     null,
-    128,
-    128,
-    false
-  ),
-  (
-    'party_002',
-    'Neon Rush',
-    'SpinShot Beats',
-    'party',
-    '🎉',
-    'spinshot/music/party_002',    -- ← Replace with your Cloudinary public_id
-    null,
-    95,
-    140,
+    30,
+    126,
     false
   ),
 
   -- ── PARTY / ENERGY (Premium) ───────────────────────────────
 
   (
-    'party_003',
-    'Ultra Drop',
-    'SpinShot Beats',
+    'party_002',
+    'Villa Penthouse',
+    'Arulo',
     'party',
     '🎉',
-    'spinshot/music/party_003',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/party_002',
     null,
-    110,
+    30,
+    98,
+    true
+  ),
+  (
+    'party_003',
+    'Neon Pulse',
+    'Michael Ramir C.',
+    'party',
+    '🎉',
+    'spinshot/music/party_003',
+    null,
+    30,
     150,
     true
   ),
   (
     'party_004',
-    'Confetti Blast',
-    'SpinShot Beats',
+    'Gimme that Groove!',
+    'Michael Ramir C.',
     'party',
     '🎉',
-    'spinshot/music/party_004',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/party_004',
     null,
-    105,
-    135,
+    30,
+    112,
     true
   ),
 
-  -- ── WEDDING / EMOTIONAL (Free) ─────────────────────────────
+  -- ── WEDDING / EMOTIONAL (Premium) ──────────────────────────
 
   (
     'wedding_001',
-    'Eternal Waltz',
-    'SpinShot Beats',
+    'Wedding Vows',
+    'Francisco Alvear',
     'wedding',
     '💍',
-    'spinshot/music/wedding_001',  -- ← Replace with your Cloudinary public_id
+    'spinshot/music/wedding_001',
     null,
-    180,
-    72,
-    false
+    30,
+    80,
+    true
   ),
   (
     'wedding_002',
-    'Golden Moment',
-    'SpinShot Beats',
+    'Romantic Moment',
+    'Francisco Alvear',
     'wedding',
     '💍',
-    'spinshot/music/wedding_002',  -- ← Replace with your Cloudinary public_id
+    'spinshot/music/wedding_002',
     null,
-    165,
-    68,
-    false
+    30,
+    76,
+    true
   ),
-
-  -- ── WEDDING / EMOTIONAL (Premium) ─────────────────────────
-
   (
     'wedding_003',
-    'Forever After',
-    'SpinShot Beats',
+    'Beautiful Dream',
+    'Diego Nava',
     'wedding',
     '💍',
-    'spinshot/music/wedding_003',  -- ← Replace with your Cloudinary public_id
+    'spinshot/music/wedding_003',
     null,
-    200,
-    64,
+    30,
+    88,
     true
   ),
   (
     'wedding_004',
-    'Diamond Vows',
-    'SpinShot Beats',
+    'Latin Lovers',
+    'Ahjay Stelino',
     'wedding',
     '💍',
-    'spinshot/music/wedding_004',  -- ← Replace with your Cloudinary public_id
+    'spinshot/music/wedding_004',
     null,
-    190,
-    70,
+    30,
+    92,
     true
   ),
 
@@ -268,111 +277,108 @@ values
 
   (
     'corporate_001',
-    'Executive Suite',
-    'SpinShot Beats',
+    'Driving Ambition',
+    'Ahjay Stelino',
     'corporate',
     '💼',
-    'spinshot/music/corporate_001', -- ← Replace with your Cloudinary public_id
+    'spinshot/music/corporate_001',
     null,
-    120,
-    95,
-    false
-  ),
-  (
-    'corporate_002',
-    'Power Pitch',
-    'SpinShot Beats',
-    'corporate',
-    '💼',
-    'spinshot/music/corporate_002', -- ← Replace with your Cloudinary public_id
-    null,
-    115,
+    30,
     100,
     false
   ),
 
-  -- ── CORPORATE / ELEGANT (Premium) ─────────────────────────
+  -- ── CORPORATE / ELEGANT (Premium) ──────────────────────────
 
+  (
+    'corporate_002',
+    'Discover',
+    'Eugenio Mininni',
+    'corporate',
+    '💼',
+    'spinshot/music/corporate_002',
+    null,
+    30,
+    104,
+    true
+  ),
   (
     'corporate_003',
-    'Summit Drive',
-    'SpinShot Beats',
+    'Boardroom Calm',
+    'Lily J',
     'corporate',
     '💼',
-    'spinshot/music/corporate_003', -- ← Replace with your Cloudinary public_id
+    'spinshot/music/corporate_003',
     null,
-    130,
-    105,
-    true
-  ),
-  (
-    'corporate_004',
-    'Prestige Mode',
-    'SpinShot Beats',
-    'corporate',
-    '💼',
-    'spinshot/music/corporate_004', -- ← Replace with your Cloudinary public_id
-    null,
-    125,
-    98,
+    30,
+    90,
     true
   ),
 
-  -- ── CHILL / SMOOTH (Free) ─────────────────────────────────
+  -- ── CHILL / SMOOTH (Free) ───────────────────────────────────
 
   (
     'chill_001',
-    'Sunset Flow',
-    'SpinShot Beats',
+    'Serene View',
+    'Arulo',
     'chill',
     '🌊',
-    'spinshot/music/chill_001',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/chill_001',
     null,
-    150,
-    85,
+    30,
+    82,
     false
   ),
+
+  -- ── CHILL / SMOOTH (Premium) ───────────────────────────────
+
   (
     'chill_002',
-    'Ocean Breeze',
-    'SpinShot Beats',
+    'Valley Sunset',
+    'Alejandro Magaña',
     'chill',
     '🌊',
-    'spinshot/music/chill_002',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/chill_002',
     null,
-    145,
-    80,
-    false
+    30,
+    75,
+    true
   ),
-
-  -- ── CHILL / SMOOTH (Premium) ──────────────────────────────
-
   (
     'chill_003',
-    'Midnight Drift',
-    'SpinShot Beats',
+    'Spirit in the Woods',
+    'Alejandro Magaña',
     'chill',
     '🌊',
-    'spinshot/music/chill_003',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/chill_003',
     null,
-    160,
-    78,
+    30,
+    70,
     true
   ),
   (
     'chill_004',
-    'Cloud Nine',
-    'SpinShot Beats',
+    'Soft Glow',
+    'Grigoriy Nuzhny',
     'chill',
     '🌊',
-    'spinshot/music/chill_004',    -- ← Replace with your Cloudinary public_id
+    'spinshot/music/chill_004',
     null,
-    155,
-    76,
+    30,
+    95,
     true
   )
 
-on conflict (id) do nothing;
+on conflict (id) do update set
+  title                = excluded.title,
+  artist                = excluded.artist,
+  category              = excluded.category,
+  emoji                 = excluded.emoji,
+  cloudinary_public_id  = excluded.cloudinary_public_id,
+  preview_url           = excluded.preview_url,
+  duration              = excluded.duration,
+  bpm                   = excluded.bpm,
+  is_premium            = excluded.is_premium;
 
 
 -- ===========================================================
@@ -392,7 +398,7 @@ on conflict (id) do nothing;
 -- ===========================================================
 -- EXPECTED RESULT:
 --   video_frames → 10 rows (5 free default + 5 premium default)
---   music_tracks → 16 rows (8 free + 8 premium across 4 categories)
+--   music_tracks → 15 rows (3 free + 12 premium across 4 categories)
 -- ===========================================================
 
 

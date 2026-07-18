@@ -42,8 +42,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 // ─── Build preview URL from Cloudinary public_id ──────────────────────────
+// `so_0,eo_30` trims delivery to the first 30s server-side — the uploaded
+// source file can be any length, but users never hear more than 30s.
 export function buildCloudinaryPreviewUrl(cloudinaryPublicId: string): string {
-  return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/video/upload/${cloudinaryPublicId}.mp3`;
+  return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/video/upload/so_0,eo_30/${cloudinaryPublicId}.mp3`;
 }
 
 // ─── Map Supabase row to MusicTrack ───────────────────────────────────────

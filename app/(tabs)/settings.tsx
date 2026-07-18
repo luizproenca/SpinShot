@@ -222,7 +222,7 @@ export default function SettingsScreen() {
   const planBorderColor = isPro ? Colors.Primary + '44' : Colors.Border;
   const planBgColor = isPro ? Colors.Primary + '12' : Colors.Surface;
 
-  const trialDaysLeft = getTrialRemainingDays(subscription.trialStartAt);
+  const trialDaysLeft = getTrialRemainingDays(subscription.trialStartAt, subscription.plan);
   const expiryFormatted = formatExpiryDate(subscription.expiresAt, language);
 
   return (

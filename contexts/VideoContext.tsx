@@ -10,7 +10,7 @@ interface VideoContextType {
   videos: Video[];
   isLoading: boolean;
   refreshVideos: () => Promise<void>;
-  saveVideo: (data: Partial<Video> & { musicSelection?: MusicSelection; musicTracks?: MusicTrack[] }, onProgress?: (step: VideoSaveStep) => void) => Promise<Video>;
+  saveVideo: (data: Partial<Video> & { musicSelection?: MusicSelection; musicTracks?: MusicTrack[] }, onProgress?: (step: VideoSaveStep) => void, signal?: AbortSignal) => Promise<Video>;
   deleteVideo: (videoId: string) => Promise<void>;
 }
 
@@ -39,10 +39,12 @@ export function VideoProvider({ children }: { children: ReactNode }) {
     else setVideos([]);
   }, [user]);
 
-  const saveVideo = async (data: Partial<Video> & { musicSelection?: MusicSelection; musicTracks?: MusicTrack[] }, onProgress?: (step: VideoSaveStep) => void) => {
+  const saveVideo = async (data: Partial<Video> & { musicSelection?: MusicSelection; musicTracks?: MusicTrack[] }, onProgress?: (step: VideoSaveStep) => void, signal?: AbortSignal) => {
     if (!user) throw new Error('Usuário não autenticado');
-    const newVideo = await videoService.saveVideo(user.id, data, onProgress);
-    setVideos(prev => [newVideo, ...prev]);
+    const newVideo = await videoService.saveVideo(user.id, data, onProgress, signal);
+    if (!signal?.aborted) {
+      setVideos(prev => [newVideo, ...prev]);
+    }
     return newVideo;
   };
 

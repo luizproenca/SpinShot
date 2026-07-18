@@ -12,7 +12,9 @@ module.exports = {
     newArchEnabled: true,
     ios: {
       appleTeamId: 'Q6943C4X4V',
-      usesNonExemptEncryption: false,
+      config: {
+        usesNonExemptEncryption: false,
+      },
       supportsTablet: true,
       bundleIdentifier: 'com.ironman.spinshot.app',
       buildNumber: String(versionData.build),
@@ -28,6 +30,7 @@ module.exports = {
     },
     android: {
       package: 'com.ironman.spinshot.app',
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
       versionCode: versionData.build,
       adaptiveIcon: {
         foregroundImage: './assets/images/icon.png',
@@ -35,13 +38,13 @@ module.exports = {
       },
       edgeToEdgeEnabled: true,
       blockedPermissions: [
-/*         "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION", */
-/*         "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR", */
-/*         "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS", */
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
         "android.permission.READ_PHONE_STATE",
@@ -74,6 +77,13 @@ module.exports = {
       'expo-secure-store',
       'expo-sqlite',
       'expo-video',
+      [
+        'expo-notifications',
+        {
+          icon: './assets/images/icon.png',
+          color: '#8B5CF6',
+        },
+      ],
       './plugins/withRemovePermissions',
     ],
     experiments: {
