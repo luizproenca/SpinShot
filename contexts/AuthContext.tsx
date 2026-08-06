@@ -13,6 +13,8 @@ interface AuthContextType {
     email: string,
     password: string
   ) => Promise<{ needsEmailConfirmation: boolean }>;
+  signInWithApple: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   upgradeToPro: () => Promise<void>;
@@ -139,6 +141,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithApple = async () => {
+    setIsLoading(true);
+    try {
+      const u = await authService.signInWithApple();
+      setUser(u);
+    } catch (error) {
+      setIsLoading(false);
+      throw error; // includes AuthCancelledError — the UI decides whether to alert
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    setIsLoading(true);
+    try {
+      const u = await authService.signInWithGoogle();
+      setUser(u);
+    } catch (error) {
+      setIsLoading(false);
+      throw error;
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -163,7 +187,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, login, register, logout, deleteAccount, upgradeToPro }}
+      value={{
+        user, isLoading, login, register,
+        signInWithApple, signInWithGoogle,
+        logout, deleteAccount, upgradeToPro,
+      }}
     >
       {children}
     </AuthContext.Provider>

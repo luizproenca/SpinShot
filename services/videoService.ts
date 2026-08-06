@@ -42,6 +42,9 @@ function toVideo(row: any): Video {
     shareCode: row.share_code || '',
     createdAt: row.created_at,
     downloads: row.downloads || 0,
+    videoUrlWatermarked: row.video_url_watermarked || undefined,
+    cleanAvailableAt: row.clean_available_at || undefined,
+    cleanConfirmedAt: row.clean_confirmed_at || undefined,
   };
 }
 
@@ -218,7 +221,14 @@ async function processVideoWithEffects(
   frameCloudinaryId: string | null,
   isPro: boolean,
   finalDuration: number,
-): Promise<{ processedUrl: string; thumbnailUrl: string | null }> {
+  eventId: string | null,
+): Promise<{
+  processedUrl: string;
+  thumbnailUrl: string | null;
+  watermarkedUrl: string | null;
+  cleanAvailableAt: string | null;
+  holdReason: string | null;
+}> {
   console.log('Music cloudinaryId resolved:', musicCloudinaryId ?? 'none');
   console.log('Frame cloudinaryId:', frameCloudinaryId ?? 'none');
 
@@ -230,6 +240,7 @@ async function processVideoWithEffects(
       videoUrl: storageUrl,
       userId,
       isPro,
+      eventId: eventId || undefined,
       musicCloudinaryId: musicCloudinaryId || undefined,
       frameCloudinaryId: frameCloudinaryId || undefined,
       sourceDuration: durationPlan.sourceDuration,
@@ -265,6 +276,9 @@ async function processVideoWithEffects(
   return {
     processedUrl,
     thumbnailUrl,
+    watermarkedUrl: data?.watermarkedUrl || null,
+    cleanAvailableAt: data?.cleanAvailableAt || null,
+    holdReason: data?.holdReason || null,
   };
 }
 
@@ -296,6 +310,22 @@ async function waitForRemoteVideoReady(url: string, signal?: AbortSignal): Promi
   }
 
   throw new Error('O vídeo final foi gerado, mas ainda não ficou disponível para reprodução.');
+}
+
+// For paid access (one-off purchase or subscription, pre-trusted-account),
+// hold back the clean (no-watermark) render until the reconcile-clean-video
+// cron job confirms — after the hold window — that no refund landed; see
+// the anti-refund note in supabase/functions/process-video/index.ts and
+// 20260805160000_clean_reveal_confirmation.sql. This deliberately does NOT
+// compare against cleanAvailableAt client-side anymore: that only proved
+// time had passed, never that the purchase was still good. Videos with no
+// watermarked variant at all (free first event, already-trusted accounts)
+// are unaffected either way.
+export function getDisplayVideoUrl(video: Video): string {
+  if (video.videoUrlWatermarked && !video.cleanConfirmedAt) {
+    return video.videoUrlWatermarked;
+  }
+  return video.videoUri || '';
 }
 
 export const videoService = {
@@ -368,6 +398,7 @@ export const videoService = {
       data.frameCloudinaryId || null,
       isPro,
       data.duration || 10,
+      data.eventId || null,
     );
 
     await waitForRemoteVideoReady(processed.processedUrl, signal);
@@ -392,6 +423,9 @@ export const videoService = {
         share_url: processed.processedUrl,
         share_code: shareCode,
         downloads: 0,
+        video_url_watermarked: processed.watermarkedUrl,
+        clean_available_at: processed.cleanAvailableAt,
+        hold_reason: processed.holdReason,
       })
       .select()
       .single();

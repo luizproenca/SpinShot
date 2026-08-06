@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput, Pressable,
-  ScrollView, KeyboardAvoidingView, Platform,
+  ScrollView, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -10,36 +11,37 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAlert } from '@/template';
 import { useEvents } from '../hooks/useEvents';
 import { useLanguage } from '../hooks/useLanguage';
-import { usePlan } from '../hooks/usePlan';
+import { toLocalDateString } from '../services/eventService';
 import { GradientButton } from '../components';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../constants/theme';
 import { EVENT_COLORS } from '../constants/config';
 
 export default function CreateEventScreen() {
-  const { createEvent, setActiveEvent, events } = useEvents();
+  const { createEvent, setActiveEvent } = useEvents();
   const { t } = useLanguage();
-  const { isPro, showPaywall } = usePlan();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { showAlert } = useAlert();
 
   const [name, setName] = useState('');
   const [color, setColor] = useState(EVENT_COLORS[0]);
+  const [eventDate, setEventDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
-    // Free plan: max 1 event
-    if (!isPro && events.length >= 1) {
-      showPaywall('event_limit');
-      return;
-    }
     if (!name.trim()) {
       showAlert(t.events.eventName, t.events.eventName + '.');
       return;
     }
+    if (!eventDate) {
+      showAlert(t.events.eventDate, t.events.eventDateRequired);
+      return;
+    }
     setLoading(true);
     try {
-      const event = await createEvent({ name: name.trim(), color });
+      const eventDateIso = toLocalDateString(eventDate);
+      const event = await createEvent({ name: name.trim(), color, eventDate: eventDateIso });
       setActiveEvent(event);
       showAlert(t.events.createEvent, `"${name}" ${t.events.eventName}.`, [
         { text: t.common.ok, onPress: () => router.back() },
@@ -68,40 +70,26 @@ export default function CreateEventScreen() {
             <View style={{ width: 44 }} />
           </View>
 
-          {/* Free plan banner */}
-          {!isPro && events.length >= 1 && (
-            <Pressable
-              onPress={() => showPaywall('event_limit')}
-              style={styles.limitBanner}
-            >
-              <LinearGradient colors={['#EF444422', '#7C3AED22']} style={styles.limitBannerGrad}>
-                <MaterialIcons name="lock" size={16} color={Colors.Warning} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.limitBannerTitle}>{t.events.eventLimit}</Text>
-                  <Text style={styles.limitBannerSub}>{t.events.eventLimitMsg}</Text>
-                </View>
-                <MaterialIcons name="chevron-right" size={18} color={Colors.Warning} />
-              </LinearGradient>
-            </Pressable>
-          )}
-
           {/* Preview Card */}
-          <View style={[styles.previewCard, { borderColor: color + '66' }]}>
-            <LinearGradient colors={[color + '33', Colors.SurfaceElevated]} style={styles.previewGrad}>
-              <View style={[styles.previewIcon, { backgroundColor: color + '22' }]}>
-                <MaterialIcons name="celebration" size={32} color={color} />
-              </View>
-              <Text style={styles.previewName} numberOfLines={1}>
-                {name || t.events.eventName}
-              </Text>
-            </LinearGradient>
+          <View style={styles.previewSection}>
+            <Text style={styles.previewOverline}>{t.common.preview}</Text>
+            <View style={styles.previewCard}>
+              <LinearGradient colors={[color + '33', Colors.SurfaceElevated]} style={styles.previewGrad}>
+                <View style={[styles.previewIcon, { backgroundColor: color + '22' }]}>
+                  <MaterialIcons name="celebration" size={32} color={color} />
+                </View>
+                <Text style={styles.previewName} numberOfLines={1}>
+                  {name || t.events.eventName}
+                </Text>
+              </LinearGradient>
+            </View>
           </View>
 
           {/* Name Input */}
           <View style={styles.section}>
-            <Text style={styles.label}>{t.events.eventName}</Text>
+            <Text style={styles.label}>{t.events.eventName} *</Text>
             <View style={styles.inputWrapper}>
-              <MaterialIcons name="event" size={20} color={Colors.TextSubtle} />
+              <MaterialIcons name="short-text" size={20} color={Colors.TextSubtle} />
               <TextInput
                 style={styles.input}
                 value={name}
@@ -112,6 +100,47 @@ export default function CreateEventScreen() {
                 accessibilityLabel="Nome do evento"
               />
             </View>
+          </View>
+
+          {/* Date Picker */}
+          <View style={styles.section}>
+            <Text style={styles.label}>{t.events.eventDate} *</Text>
+            <Pressable style={styles.inputWrapper} onPress={() => setShowDatePicker(true)}>
+              <MaterialIcons name="calendar-today" size={20} color={Colors.TextSubtle} />
+              <Text style={[styles.input, !eventDate && { color: Colors.TextMuted }]}>
+                {eventDate ? eventDate.toLocaleDateString() : t.events.eventDate}
+              </Text>
+            </Pressable>
+            {showDatePicker && Platform.OS === 'android' && (
+              <DateTimePicker
+                value={eventDate || new Date()}
+                mode="date"
+                display="default"
+                onChange={(_event, selectedDate) => {
+                  setShowDatePicker(false);
+                  if (selectedDate) setEventDate(selectedDate);
+                }}
+              />
+            )}
+            {Platform.OS === 'ios' && (
+              <Modal visible={showDatePicker} transparent animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
+                <View style={styles.datePickerOverlay}>
+                  <View style={styles.datePickerSheet}>
+                    <DateTimePicker
+                      value={eventDate || new Date()}
+                      mode="date"
+                      display="inline"
+                      onChange={(_event, selectedDate) => {
+                        if (selectedDate) setEventDate(selectedDate);
+                      }}
+                    />
+                    <Pressable style={styles.datePickerConfirmBtn} onPress={() => setShowDatePicker(false)}>
+                      <Text style={styles.datePickerConfirmText}>{t.common.ok}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </Modal>
+            )}
           </View>
 
           {/* Color Picker */}
@@ -156,14 +185,12 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: Spacing.md },
   closeBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.SurfaceElevated, borderRadius: 22 },
   title: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.TextPrimary },
-  limitBanner: { borderRadius: Radius.xl, overflow: 'hidden' },
-  limitBannerGrad: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    padding: Spacing.md, borderWidth: 1, borderColor: Colors.Warning + '44', borderRadius: Radius.xl,
+  previewSection: { gap: Spacing.xs },
+  previewOverline: {
+    fontSize: 10, fontWeight: FontWeight.bold, color: Colors.TextMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  limitBannerTitle: { color: Colors.Warning, fontSize: FontSize.sm, fontWeight: FontWeight.bold },
-  limitBannerSub: { color: Colors.TextSubtle, fontSize: FontSize.xs, marginTop: 2, lineHeight: 17 },
-  previewCard: { borderRadius: Radius.xl, borderWidth: 1.5, overflow: 'hidden' },
+  previewCard: { borderRadius: Radius.xl, overflow: 'hidden' },
   previewGrad: { padding: Spacing.xl, alignItems: 'center', gap: Spacing.md },
   previewIcon: { width: 72, height: 72, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center' },
   previewName: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.TextPrimary, textAlign: 'center' },
@@ -175,4 +202,28 @@ const styles = StyleSheet.create({
   colorDot: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   colorDotActive: { borderWidth: 3, borderColor: '#fff' },
   createBtn: { marginTop: Spacing.sm },
+  datePickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  datePickerSheet: {
+    backgroundColor: Colors.SurfaceElevated,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xl,
+  },
+  datePickerConfirmBtn: {
+    backgroundColor: Colors.Primary,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.md,
+  },
+  datePickerConfirmText: {
+    color: '#fff',
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.md,
+  },
 });

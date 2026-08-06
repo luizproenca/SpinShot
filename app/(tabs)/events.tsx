@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  TextInput, Animated, RefreshControl, Platform,
+  TextInput, Animated, RefreshControl, Platform, Modal,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -11,12 +12,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAlert } from '@/template';
 import { useEvents } from '../../hooks/useEvents';
 import { useFrames } from '../../hooks/useFrames';
+import { useMusic } from '../../hooks/useMusic';
 import { usePlan } from '../../hooks/usePlan';
 import { useLanguage } from '../../hooks/useLanguage';
 import { Colors, Spacing, FontSize, FontWeight, Radius, Shadow } from '../../constants/theme';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { Event } from '../../services/types';
+import { getEventUnlockStatus, toLocalDateString } from '../../services/eventService';
+import { MUSIC_AUTO_ID, MUSIC_NONE_ID } from '../../constants/music';
 
 function EventListCard({
   event,
@@ -37,10 +41,12 @@ function EventListCard({
   onRefreshCount: (id: string) => void;
   activeLabel: string;
   videosLabel: string;
-  editLabel: string;
+  isPro: boolean;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const router = useRouter();
+  const { showPaywall } = usePlan();
+  const { t } = useLanguage();
 
   const onPressIn = () =>
     Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true, speed: 50 }).start();
@@ -107,15 +113,59 @@ function EventListCard({
                   <MaterialIcons name="refresh" size={11} color={Colors.TextMuted} />
                 </Pressable>
 
-                {event.createdAt && (
+                {(event.eventDate || event.createdAt) && (
                   <Text style={styles.cardDate} numberOfLines={1}>
-                    {new Date(event.createdAt).toLocaleDateString('pt-BR', {
+                    {new Date(event.eventDate || event.createdAt).toLocaleDateString('pt-BR', {
                       day: '2-digit',
                       month: 'short',
                     })}
                   </Text>
                 )}
               </View>
+
+              {!isPro && (() => {
+                const unlockStatus = getEventUnlockStatus(event);
+                return (
+                  <View style={styles.cardBottomLine}>
+                    {unlockStatus === 'unlocked' && (
+                      <View style={[styles.unlockChip, { backgroundColor: Colors.Success + '1A', borderColor: Colors.Success + '44' }]}>
+                        <MaterialIcons name="lock-open" size={11} color={Colors.Success} />
+                        <Text style={[styles.unlockChipText, { color: Colors.Success }]}>
+                          {event.unlockSource === 'purchase' ? t.events.unlockedPaid : t.events.unlockedFree}
+                        </Text>
+                      </View>
+                    )}
+                    {unlockStatus === 'scheduled' && (
+                      <View style={[styles.unlockChip, { backgroundColor: Colors.Secondary + '1A', borderColor: Colors.Secondary + '44' }]}>
+                        <MaterialIcons name="schedule" size={11} color={Colors.Secondary} />
+                        <Text style={[styles.unlockChipText, { color: Colors.Secondary }]}>
+                          {t.events.unlockScheduled}
+                        </Text>
+                      </View>
+                    )}
+                    {unlockStatus === 'expired' && (
+                      <View style={[styles.unlockChip, { backgroundColor: Colors.TextMuted + '1A', borderColor: Colors.TextMuted + '44' }]}>
+                        <MaterialIcons name="history" size={11} color={Colors.TextSubtle} />
+                        <Text style={[styles.unlockChipText, { color: Colors.TextSubtle }]}>
+                          {t.events.unlockExpired}
+                        </Text>
+                      </View>
+                    )}
+                    {unlockStatus === 'locked' && (
+                      <Pressable
+                        style={[styles.unlockChip, { backgroundColor: Colors.Warning + '1A', borderColor: Colors.Warning + '44' }]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          showPaywall('event_limit');
+                        }}
+                      >
+                        <MaterialIcons name="lock-outline" size={11} color={Colors.Warning} />
+                        <Text style={[styles.unlockChipText, { color: Colors.Warning }]}>{t.events.locked}</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })()}
             </View>
           </View>
 
@@ -165,6 +215,7 @@ function EventListCard({
 export default function EventsScreen() {
   const { events, activeEvent, setActiveEvent, deleteEvent, updateEvent, refreshEvents, refreshVideoCount, isLoading, createEvent } = useEvents();
   const { frames, defaultFrames, isLoading: framesLoading } = useFrames();
+  const { freeTracks, premiumTracks } = useMusic();
   const { isPro, showPaywall } = usePlan();
   const { t } = useLanguage();
   const router = useRouter();
@@ -177,6 +228,9 @@ export default function EventsScreen() {
 
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#8B5CF6');
+  const [newEventDate, setNewEventDate] = useState<Date | null>(null);
+  const [showNewEventDatePicker, setShowNewEventDatePicker] = useState(false);
+  const [newMusic, setNewMusic] = useState<string>(MUSIC_AUTO_ID);
   const [logoLocalUri, setLogoLocalUri] = useState<string | null>(null);
   const [newFrameId, setNewFrameId] = useState<string | null>(null);
   const [newFrameCloudinaryId, setNewFrameCloudinaryId] = useState<string | null>(null);
@@ -190,6 +244,7 @@ export default function EventsScreen() {
   const [editLogoUri, setEditLogoUri] = useState<string | null>(null);
   const [editFrameId, setEditFrameId] = useState<string | null>(null);
   const [editFrameCloudinaryId, setEditFrameCloudinaryId] = useState<string | null>(null);
+  const [editMusic, setEditMusic] = useState<string>(MUSIC_AUTO_ID);
   const [saving, setSaving] = useState(false);
 
   const editSheetAnim = useRef(new Animated.Value(0)).current;
@@ -208,6 +263,7 @@ export default function EventsScreen() {
     setEditLogoUri(event.logoUri || null);
     setEditFrameId(event.frameId || null);
     setEditFrameCloudinaryId(event.frameCloudinaryId || null);
+    setEditMusic(event.music || MUSIC_AUTO_ID);
     setShowEditSheet(true);
   };
 
@@ -237,6 +293,7 @@ export default function EventsScreen() {
         logoUri: isNewLocalLogo ? undefined : (editLogoUri || undefined),
         frameId: editFrameId || undefined,
         frameCloudinaryId: editFrameCloudinaryId || undefined,
+        music: editMusic,
       });
       setShowEditSheet(false);
       setEditingEvent(null);
@@ -334,9 +391,8 @@ export default function EventsScreen() {
       showAlert(t.events.eventName, `${t.events.eventName}.`);
       return;
     }
-    // Free plan: max 1 event
-    if (!isPro && events.length >= 1) {
-      showPaywall('event_limit');
+    if (!newEventDate) {
+      showAlert(t.events.eventDate, t.events.eventDateRequired);
       return;
     }
     setCreating(true);
@@ -344,6 +400,8 @@ export default function EventsScreen() {
       const ev = await createEvent({
         name: newName.trim(),
         color: newColor,
+        eventDate: toLocalDateString(newEventDate),
+        music: newMusic,
         logoLocalUri: logoLocalUri || undefined,
         frameId: newFrameId || undefined,
         frameCloudinaryId: newFrameCloudinaryId || undefined,
@@ -353,6 +411,8 @@ export default function EventsScreen() {
       setNewName('');
       setLogoLocalUri(null);
       setNewColor('#8B5CF6');
+      setNewEventDate(null);
+      setNewMusic(MUSIC_AUTO_ID);
       setNewFrameId(null);
       setNewFrameCloudinaryId(null);
       if (Platform.OS !== 'web') {
@@ -390,18 +450,14 @@ export default function EventsScreen() {
           <View>
             <Text style={styles.title}>{t.events.title}</Text>
             <Text style={styles.subtitle}>
-              {events.length} {t.events.title.toLowerCase()} · {totalVideos} {t.tabs.videos.toLowerCase()}
+              {events.length} {(events.length === 1 ? t.events.titleSingular : t.events.title).toLowerCase()}
+              {' · '}
+              {totalVideos} {(totalVideos === 1 ? t.events.videosSingular : t.tabs.videos).toLowerCase()}
             </Text>
           </View>
           <Pressable
             style={[styles.addBtn]}
-            onPress={() => {
-              if (!isPro && events.length >= 1) {
-                showPaywall('event_limit');
-                return;
-              }
-              setShowCreateSheet(true);
-            }}
+            onPress={() => setShowCreateSheet(true)}
           >
             <LinearGradient colors={['#C084FC', '#8B5CF6', '#4F46E5']} style={styles.addBtnGrad}>
               <MaterialIcons name="add" size={22} color="#fff" />
@@ -415,23 +471,29 @@ export default function EventsScreen() {
             <LinearGradient colors={['#7C3AED22', '#4F46E522']} style={styles.statCardBg}>
               <MaterialIcons name="celebration" size={22} color={Colors.Primary} />
               <Text style={styles.statValue}>{events.length}</Text>
-              <Text style={styles.statLabel}>{t.events.title}</Text>
+              <Text style={styles.statLabel}>
+                {events.length === 1 ? t.events.titleSingular : t.events.title}
+              </Text>
             </LinearGradient>
           </View>
           <View style={styles.statCard}>
             <LinearGradient colors={['#EC489922', '#7C3AED22']} style={styles.statCardBg}>
               <MaterialIcons name="videocam" size={22} color={Colors.Secondary} />
               <Text style={styles.statValue}>{totalVideos}</Text>
-              <Text style={styles.statLabel}>{t.tabs.videos}</Text>
+              <Text style={styles.statLabel}>
+                {totalVideos === 1 ? t.events.videosSingular : t.tabs.videos}
+              </Text>
             </LinearGradient>
           </View>
           <View style={styles.statCard}>
             <LinearGradient colors={['#10B98122', '#3B82F622']} style={styles.statCardBg}>
-              <MaterialIcons name="fiber-manual-record" size={16} color={Colors.Success} />
-              <Text style={[styles.statValue, { fontSize: FontSize.md }]}>
+              <MaterialIcons name="fiber-manual-record" size={22} color={Colors.Success} />
+              <Text style={styles.statValue}>
                 {activeEvent ? '1' : '0'}
               </Text>
-              <Text style={styles.statLabel}>{t.analytics.active}</Text>
+              <Text style={styles.statLabel}>
+                {activeEvent ? t.analytics.activeSingular : t.analytics.active}
+              </Text>
             </LinearGradient>
           </View>
         </View>
@@ -477,13 +539,7 @@ export default function EventsScreen() {
             </Text>
             {!search && (
               <Pressable
-                onPress={() => {
-                  if (!isPro && events.length >= 1) {
-                    showPaywall('event_limit');
-                    return;
-                  }
-                  setShowCreateSheet(true);
-                }}
+                onPress={() => setShowCreateSheet(true)}
                 style={({ pressed }) => [styles.emptyBtn, { opacity: pressed ? 0.85 : 1 }]}
               >
                 <LinearGradient colors={['#8B5CF6', '#4F46E5']} style={styles.emptyBtnGrad}>
@@ -507,7 +563,6 @@ export default function EventsScreen() {
                 onRefreshCount={refreshVideoCount}
                 activeLabel={t.analytics.active}
                 videosLabel={t.events.videos}
-                editLabel={t.events.editEvent}
               />
             ))}
           </View>
@@ -542,6 +597,12 @@ export default function EventsScreen() {
               </Pressable>
             </View>
 
+            <ScrollView
+              style={styles.sheetScroll}
+              contentContainerStyle={styles.sheetScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
             <View style={styles.sheetPreviewRow}>
               <Pressable
                 style={[styles.logoPicker, { borderColor: editColor + '66', backgroundColor: editColor + '15' }]}
@@ -557,18 +618,21 @@ export default function EventsScreen() {
                 )}
               </Pressable>
 
-              <View style={[styles.previewCard, { borderColor: editColor + '55', backgroundColor: editColor + '0D' }]}>
-                <View style={[styles.previewDot, { backgroundColor: editColor }]} />
-                <Text style={styles.previewCardName} numberOfLines={2}>
-                  {editName || t.events.eventName}
-                </Text>
+              <View style={styles.previewSection}>
+                <Text style={styles.previewOverline}>{t.common.preview}</Text>
+                <View style={[styles.previewCard, Shadow.card, { backgroundColor: editColor + '26' }]}>
+                  <View style={[styles.previewDot, { backgroundColor: editColor }]} />
+                  <Text style={styles.previewCardName} numberOfLines={2}>
+                    {editName || t.events.eventName}
+                  </Text>
+                </View>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>{t.events.eventName}</Text>
+              <Text style={styles.inputLabel}>{t.events.eventName} *</Text>
               <View style={styles.inputWrapper}>
-                <MaterialIcons name="event" size={18} color={Colors.TextSubtle} />
+                <MaterialIcons name="short-text" size={18} color={Colors.TextSubtle} />
                 <TextInput
                   style={styles.textInput}
                   value={editName}
@@ -583,7 +647,11 @@ export default function EventsScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>{t.events.eventColor}</Text>
-              <View style={styles.colorGrid}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.framePickerContent}
+              >
                 {EVENT_COLORS_LIST.map(c => (
                   <Pressable
                     key={c}
@@ -597,7 +665,7 @@ export default function EventsScreen() {
                     {editColor === c && <MaterialIcons name="check" size={14} color="#fff" />}
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             </View>
 
             {/* ─── Frame Picker (Edit) ─── */}
@@ -691,6 +759,72 @@ export default function EventsScreen() {
               </View>
             </View>
 
+            {/* ─── Music Picker (Edit) ─── */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>{t.music.sectionLabel}</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.framePickerContent}
+              >
+                <Pressable
+                  onPress={() => setEditMusic(MUSIC_AUTO_ID)}
+                  style={[styles.musicChip, editMusic === MUSIC_AUTO_ID && { borderColor: editColor, borderWidth: 2 }]}
+                >
+                  <Text style={styles.musicChipEmoji}>🎵</Text>
+                  <Text style={[styles.musicChipLabel, editMusic === MUSIC_AUTO_ID && { color: editColor }]} numberOfLines={1}>
+                    {t.music.auto}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => setEditMusic(MUSIC_NONE_ID)}
+                  style={[styles.musicChip, editMusic === MUSIC_NONE_ID && { borderColor: editColor, borderWidth: 2 }]}
+                >
+                  <Text style={styles.musicChipEmoji}>🔇</Text>
+                  <Text style={[styles.musicChipLabel, editMusic === MUSIC_NONE_ID && { color: editColor }]} numberOfLines={1}>
+                    {t.music.none}
+                  </Text>
+                </Pressable>
+
+                {freeTracks.map(track => (
+                  <Pressable
+                    key={track.id}
+                    onPress={() => setEditMusic(track.id)}
+                    style={[styles.musicChip, editMusic === track.id && { borderColor: editColor, borderWidth: 2 }]}
+                  >
+                    <Text style={styles.musicChipEmoji}>{track.emoji}</Text>
+                    <Text style={[styles.musicChipLabel, editMusic === track.id && { color: editColor }]} numberOfLines={1}>
+                      {track.title}
+                    </Text>
+                  </Pressable>
+                ))}
+
+                {!isPro && premiumTracks.map(track => (
+                  <Pressable key={track.id} onPress={() => showPaywall('premium_music')} style={[styles.musicChip, { opacity: 0.5 }]}>
+                    <Text style={styles.musicChipEmoji}>{track.emoji}</Text>
+                    <Text style={styles.musicChipLabel} numberOfLines={1}>{track.title}</Text>
+                    <MaterialIcons name="lock" size={11} color={Colors.TextMuted} />
+                  </Pressable>
+                ))}
+
+                {isPro && premiumTracks.map(track => (
+                  <Pressable
+                    key={track.id}
+                    onPress={() => setEditMusic(track.id)}
+                    style={[styles.musicChip, editMusic === track.id && { borderColor: editColor, borderWidth: 2 }]}
+                  >
+                    <Text style={styles.musicChipEmoji}>{track.emoji}</Text>
+                    <Text style={[styles.musicChipLabel, editMusic === track.id && { color: editColor }]} numberOfLines={1}>
+                      {track.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+            </ScrollView>
+
+            <View style={styles.sheetFooter}>
             <Pressable
               style={({ pressed }) => [styles.createBtn, { opacity: pressed || saving ? 0.85 : 1 }]}
               onPress={handleSaveEdit}
@@ -709,6 +843,7 @@ export default function EventsScreen() {
                 </Text>
               </LinearGradient>
             </Pressable>
+            </View>
           </Animated.View>
         </>
       )}
@@ -738,6 +873,12 @@ export default function EventsScreen() {
               </Pressable>
             </View>
 
+            <ScrollView
+              style={styles.sheetScroll}
+              contentContainerStyle={styles.sheetScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
             <View style={styles.sheetPreviewRow}>
               <Pressable style={[styles.logoPicker, { borderColor: newColor + '66', backgroundColor: newColor + '15' }]} onPress={handlePickLogo}>
                 {logoLocalUri ? (
@@ -750,22 +891,25 @@ export default function EventsScreen() {
                 )}
               </Pressable>
 
-              <View style={[styles.previewCard, { borderColor: newColor + '55', backgroundColor: newColor + '0D' }]}>
-                <View style={[styles.previewDot, { backgroundColor: newColor }]} />
-                <Text style={styles.previewCardName} numberOfLines={2}>
-                  {newName || t.events.eventName}
-                </Text>
-                <View style={styles.previewCardMeta}>
-                  <MaterialIcons name="videocam" size={12} color={Colors.TextMuted} />
-                  <Text style={styles.previewCardMetaText}>0 {t.events.videos}</Text>
+              <View style={styles.previewSection}>
+                <Text style={styles.previewOverline}>{t.common.preview}</Text>
+                <View style={[styles.previewCard, Shadow.card, { backgroundColor: newColor + '26' }]}>
+                  <View style={[styles.previewDot, { backgroundColor: newColor }]} />
+                  <Text style={styles.previewCardName} numberOfLines={2}>
+                    {newName || t.events.eventName}
+                  </Text>
+                  <View style={styles.previewCardMeta}>
+                    <MaterialIcons name="videocam" size={12} color={Colors.TextMuted} />
+                    <Text style={styles.previewCardMetaText}>0 {t.events.videos}</Text>
+                  </View>
                 </View>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>{t.events.eventName}</Text>
+              <Text style={styles.inputLabel}>{t.events.eventName} *</Text>
               <View style={styles.inputWrapper}>
-                <MaterialIcons name="event" size={18} color={Colors.TextSubtle} />
+                <MaterialIcons name="short-text" size={18} color={Colors.TextSubtle} />
                 <TextInput
                   style={styles.textInput}
                   value={newName}
@@ -780,8 +924,52 @@ export default function EventsScreen() {
             </View>
 
             <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>{t.events.eventDate} *</Text>
+              <Pressable style={styles.inputWrapper} onPress={() => setShowNewEventDatePicker(true)}>
+                <MaterialIcons name="calendar-today" size={18} color={Colors.TextSubtle} />
+                <Text style={[styles.textInput, !newEventDate && { color: Colors.TextMuted }]}>
+                  {newEventDate ? newEventDate.toLocaleDateString() : t.events.eventDate}
+                </Text>
+              </Pressable>
+              {showNewEventDatePicker && Platform.OS === 'android' && (
+                <DateTimePicker
+                  value={newEventDate || new Date()}
+                  mode="date"
+                  display="default"
+                  onChange={(_event, selectedDate) => {
+                    setShowNewEventDatePicker(false);
+                    if (selectedDate) setNewEventDate(selectedDate);
+                  }}
+                />
+              )}
+              {Platform.OS === 'ios' && (
+                <Modal visible={showNewEventDatePicker} transparent animationType="slide" onRequestClose={() => setShowNewEventDatePicker(false)}>
+                  <View style={styles.datePickerOverlay}>
+                    <View style={styles.datePickerSheet}>
+                      <DateTimePicker
+                        value={newEventDate || new Date()}
+                        mode="date"
+                        display="inline"
+                        onChange={(_event, selectedDate) => {
+                          if (selectedDate) setNewEventDate(selectedDate);
+                        }}
+                      />
+                      <Pressable style={styles.datePickerConfirmBtn} onPress={() => setShowNewEventDatePicker(false)}>
+                        <Text style={styles.datePickerConfirmText}>{t.common.ok}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </Modal>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>{t.events.eventColor}</Text>
-              <View style={styles.colorGrid}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.framePickerContent}
+              >
                 {EVENT_COLORS_LIST.map(c => (
                   <Pressable
                     key={c}
@@ -797,7 +985,7 @@ export default function EventsScreen() {
                     )}
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             </View>
 
             {/* ─── Frame Picker (Create) ─── */}
@@ -891,27 +1079,94 @@ export default function EventsScreen() {
               </View>
             </View>
 
-            <Pressable
-              style={({ pressed }) => [styles.createBtn, { opacity: pressed || creating ? 0.85 : 1 }]}
-              onPress={handleCreate}
-              disabled={creating}
-            >
-              <LinearGradient
-                colors={['#C084FC', '#8B5CF6', '#4F46E5']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.createBtnGrad}
+            {/* ─── Music Picker (Create) ─── */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>{t.music.sectionLabel}</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.framePickerContent}
               >
-                {creating ? (
-                  <MaterialIcons name="hourglass-empty" size={20} color="#fff" />
-                ) : (
-                  <MaterialIcons name="add" size={20} color="#fff" />
-                )}
-                <Text style={styles.createBtnText}>
-                  {creating ? t.common.loading : t.events.createEvent}
-                </Text>
-              </LinearGradient>
-            </Pressable>
+                <Pressable
+                  onPress={() => setNewMusic(MUSIC_AUTO_ID)}
+                  style={[styles.musicChip, newMusic === MUSIC_AUTO_ID && { borderColor: newColor, borderWidth: 2 }]}
+                >
+                  <Text style={styles.musicChipEmoji}>🎵</Text>
+                  <Text style={[styles.musicChipLabel, newMusic === MUSIC_AUTO_ID && { color: newColor }]} numberOfLines={1}>
+                    {t.music.auto}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => setNewMusic(MUSIC_NONE_ID)}
+                  style={[styles.musicChip, newMusic === MUSIC_NONE_ID && { borderColor: newColor, borderWidth: 2 }]}
+                >
+                  <Text style={styles.musicChipEmoji}>🔇</Text>
+                  <Text style={[styles.musicChipLabel, newMusic === MUSIC_NONE_ID && { color: newColor }]} numberOfLines={1}>
+                    {t.music.none}
+                  </Text>
+                </Pressable>
+
+                {freeTracks.map(track => (
+                  <Pressable
+                    key={track.id}
+                    onPress={() => setNewMusic(track.id)}
+                    style={[styles.musicChip, newMusic === track.id && { borderColor: newColor, borderWidth: 2 }]}
+                  >
+                    <Text style={styles.musicChipEmoji}>{track.emoji}</Text>
+                    <Text style={[styles.musicChipLabel, newMusic === track.id && { color: newColor }]} numberOfLines={1}>
+                      {track.title}
+                    </Text>
+                  </Pressable>
+                ))}
+
+                {!isPro && premiumTracks.map(track => (
+                  <Pressable key={track.id} onPress={() => showPaywall('premium_music')} style={[styles.musicChip, { opacity: 0.5 }]}>
+                    <Text style={styles.musicChipEmoji}>{track.emoji}</Text>
+                    <Text style={styles.musicChipLabel} numberOfLines={1}>{track.title}</Text>
+                    <MaterialIcons name="lock" size={11} color={Colors.TextMuted} />
+                  </Pressable>
+                ))}
+
+                {isPro && premiumTracks.map(track => (
+                  <Pressable
+                    key={track.id}
+                    onPress={() => setNewMusic(track.id)}
+                    style={[styles.musicChip, newMusic === track.id && { borderColor: newColor, borderWidth: 2 }]}
+                  >
+                    <Text style={styles.musicChipEmoji}>{track.emoji}</Text>
+                    <Text style={[styles.musicChipLabel, newMusic === track.id && { color: newColor }]} numberOfLines={1}>
+                      {track.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+            </ScrollView>
+
+            <View style={styles.sheetFooter}>
+              <Pressable
+                style={({ pressed }) => [styles.createBtn, { opacity: pressed || creating ? 0.85 : 1 }]}
+                onPress={handleCreate}
+                disabled={creating}
+              >
+                <LinearGradient
+                  colors={['#C084FC', '#8B5CF6', '#4F46E5']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.createBtnGrad}
+                >
+                  {creating ? (
+                    <MaterialIcons name="hourglass-empty" size={20} color="#fff" />
+                  ) : (
+                    <MaterialIcons name="add" size={20} color="#fff" />
+                  )}
+                  <Text style={styles.createBtnText}>
+                    {creating ? t.common.loading : t.events.createEvent}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
           </Animated.View>
         </>
       )}
@@ -923,6 +1178,31 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { paddingHorizontal: Spacing.lg, gap: Spacing.lg },
 
+  datePickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  datePickerSheet: {
+    backgroundColor: Colors.SurfaceElevated,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xl,
+  },
+  datePickerConfirmBtn: {
+    backgroundColor: Colors.Primary,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.md,
+  },
+  datePickerConfirmText: {
+    color: '#fff',
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.md,
+  },
+
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.TextPrimary },
   subtitle: { color: Colors.TextSubtle, fontSize: FontSize.xs, marginTop: 3 },
@@ -931,7 +1211,7 @@ const styles = StyleSheet.create({
 
   statsRow: { flexDirection: 'row', gap: Spacing.sm },
   statCard: { flex: 1, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: Colors.Border },
-  statCardBg: { padding: Spacing.md, alignItems: 'center', gap: 3 },
+  statCardBg: { flex: 1, justifyContent: 'center', padding: Spacing.md, alignItems: 'center', gap: 3 },
   statValue: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.TextPrimary },
   statLabel: { fontSize: 10, color: Colors.TextSubtle, textAlign: 'center' },
 
@@ -1047,6 +1327,18 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   statChipText: { color: Colors.TextSubtle, fontSize: 11 },
+  unlockChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    flexShrink: 0,
+    marginTop: 6,
+  },
+  unlockChipText: { fontSize: 10, fontWeight: FontWeight.semibold },
     cardDate: {
     color: Colors.TextMuted,
     fontSize: 11,
@@ -1088,11 +1380,12 @@ const styles = StyleSheet.create({
   },
   sheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
+    maxHeight: '88%',
     backgroundColor: '#13103A',
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     borderWidth: 1, borderColor: Colors.Border,
-    paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm,
-    gap: Spacing.lg, zIndex: 50,
+    paddingTop: Spacing.sm,
+    zIndex: 50,
     shadowColor: '#000', shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.5, shadowRadius: 24, elevation: 24,
   },
@@ -1100,7 +1393,13 @@ const styles = StyleSheet.create({
     width: 40, height: 4, backgroundColor: Colors.Border,
     borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.xs,
   },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sheetHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+  },
+  sheetScroll: { paddingHorizontal: Spacing.lg },
+  sheetScrollContent: { gap: Spacing.lg, paddingTop: Spacing.lg },
+  sheetFooter: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
   sheetTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.TextPrimary },
   sheetClose: {
     width: 36, height: 36, borderRadius: 18,
@@ -1116,8 +1415,13 @@ const styles = StyleSheet.create({
   },
   logoPickerImg: { width: '100%', height: '100%' },
   logoPickerText: { textAlign: 'center', fontSize: 10, fontWeight: FontWeight.semibold },
+  previewSection: { flex: 1, gap: Spacing.xs },
+  previewOverline: {
+    fontSize: 10, fontWeight: FontWeight.bold, color: Colors.TextMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
   previewCard: {
-    flex: 1, borderRadius: Radius.lg, borderWidth: 1.5,
+    borderRadius: Radius.lg,
     padding: Spacing.md, gap: 6,
   },
   previewDot: { width: 8, height: 8, borderRadius: 4 },
@@ -1197,5 +1501,19 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.medium,
     textAlign: 'center', width: 78,
     paddingHorizontal: 2,
+  },
+
+  musicChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1.5, borderColor: Colors.Border,
+    backgroundColor: Colors.SurfaceElevated,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    maxWidth: 150,
+  },
+  musicChipEmoji: { fontSize: 14 },
+  musicChipLabel: {
+    fontSize: FontSize.xs, color: Colors.TextSecondary,
+    fontWeight: FontWeight.medium,
   },
 });

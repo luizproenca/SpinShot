@@ -1,24 +1,27 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TextInput, Pressable,
   KeyboardAvoidingView, Platform, ScrollView, Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAlert } from '@/template';
 import { useAuth } from '../../hooks/useAuth';
 import { useLanguage } from '../../hooks/useLanguage';
-import { GradientButton } from '../../components';
+import { GradientButton, GoogleGIcon } from '../../components';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../../constants/theme';
 import { getSupabaseClient } from '@/template';
+
+type SocialKind = 'apple' | 'google';
 
 type Mode = 'login' | 'register';
 type Step = 'form' | 'otp';
 
 export default function LoginScreen() {
-  const { login, register } = useAuth();
+  const { login, register, signInWithApple, signInWithGoogle } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -35,6 +38,34 @@ export default function LoginScreen() {
 
   const [otp, setOtp] = useState('');
   const [verifying, setVerifying] = useState(false);
+
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [socialBusy, setSocialBusy] = useState<SocialKind | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    AppleAuthentication.isAvailableAsync()
+      .then(setAppleAvailable)
+      .catch(() => setAppleAvailable(false));
+  }, []);
+
+  const runSocial = async (kind: SocialKind, fn: () => Promise<void>) => {
+    if (socialBusy) return;
+    setSocialBusy(kind);
+    try {
+      await fn();
+      router.replace('/(tabs)');
+    } catch (e: any) {
+      // Fechar a folha nativa por acidente é comum — não mostrar erro nesse caso.
+      if (e?.name === 'AuthCancelledError' || e?.message === 'SIGN_IN_CANCELLED') return;
+      showAlert(t.common.error, e?.message || t.common.retry);
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const handleApple = () => runSocial('apple', signInWithApple);
+  const handleGoogle = () => runSocial('google', signInWithGoogle);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
@@ -254,17 +285,17 @@ export default function LoginScreen() {
           <View style={styles.form}>
             {mode === 'register' && (
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>{t.auth.email}</Text>
+                <Text style={styles.label}>{t.auth.completeName}</Text>
                 <View style={styles.inputWrapper}>
                   <MaterialIcons name="person" size={20} color={Colors.TextSubtle} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={name}
                     onChangeText={setName}
-                    placeholder={t.auth.email}
+                    placeholder={t.auth.completeName}
                     placeholderTextColor={Colors.TextMuted}
                     autoCapitalize="words"
-                    accessibilityLabel={t.auth.email}
+                    accessibilityLabel={t.auth.completeName}
                   />
                 </View>
               </View>
@@ -309,6 +340,15 @@ export default function LoginScreen() {
                   />
                 </Pressable>
               </View>
+              {mode === 'login' && (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/(auth)/forgot-password', params: { email: email.trim() } })}
+                  hitSlop={8}
+                  style={styles.forgotBtn}
+                >
+                  <Text style={styles.forgotText}>{t.auth.forgotPassword}</Text>
+                </Pressable>
+              )}
             </View>
 
             <GradientButton
@@ -318,6 +358,45 @@ export default function LoginScreen() {
               style={styles.submitBtn}
             />
           </View>
+
+          {Platform.OS !== 'web' && (
+            <View style={styles.socialSection}>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{t.auth.orContinueWith}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* HIG exige que o botão da Apple seja pelo menos tão proeminente
+                  quanto os demais — por isso vem primeiro. */}
+              {appleAvailable && (
+                <View
+                  pointerEvents={socialBusy ? 'none' : 'auto'}
+                  style={[styles.appleBtnWrap, socialBusy && styles.socialBtnBusy]}
+                >
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                    cornerRadius={Radius.full}
+                    style={styles.appleBtn}
+                    onPress={handleApple}
+                  />
+                </View>
+              )}
+
+              <Pressable
+                onPress={handleGoogle}
+                disabled={!!socialBusy}
+                style={({ pressed }) => [
+                  styles.googleBtn,
+                  (pressed || socialBusy) && styles.socialBtnBusy,
+                ]}
+              >
+                <GoogleGIcon size={20} />
+                <Text style={styles.googleBtnText}>{t.auth.continueWithGoogle}</Text>
+              </Pressable>
+            </View>
+          )}
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>
@@ -354,6 +433,20 @@ const styles = StyleSheet.create({
   },
   backText: { color: Colors.TextSecondary, fontSize: FontSize.sm },
 
+  socialSection: { gap: Spacing.md },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.Border },
+  dividerText: { color: Colors.TextSubtle, fontSize: FontSize.xs },
+  socialBtnBusy: { opacity: 0.6 },
+  appleBtnWrap: { height: 56 },
+  appleBtn: { width: '100%', height: 56 },
+  googleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
+    height: 56, borderRadius: Radius.full,
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#747775',
+  },
+  googleBtnText: { color: '#1F1F1F', fontSize: FontSize.md, fontWeight: FontWeight.semibold },
+
   header: { alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
   logo: { fontSize: 32, fontWeight: FontWeight.extrabold, color: '#fff', letterSpacing: 0.5 },
   subtitle: { fontSize: FontSize.md, color: Colors.TextSecondary },
@@ -382,6 +475,8 @@ const styles = StyleSheet.create({
   inputIcon: { marginRight: Spacing.sm },
   input: { flex: 1, color: Colors.TextPrimary, fontSize: FontSize.md },
   eyeBtn: { padding: 4 },
+  forgotBtn: { alignSelf: 'flex-end', marginTop: -Spacing.xs },
+  forgotText: { color: Colors.Primary, fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   submitBtn: { marginTop: Spacing.sm },
 
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing.md },

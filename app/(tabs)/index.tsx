@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '../../hooks/useAuth';
 import { useEvents } from '../../hooks/useEvents';
+import { getEventUnlockStatus } from '../../services/eventService';
 import { useLanguage } from '../../hooks/useLanguage';
 import { usePlan } from '../../hooks/usePlan';
 import { useMusic } from '../../hooks/useMusic';
@@ -742,15 +743,29 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { activeEvent, events, setActiveEvent } = useEvents();
   const { t, language } = useLanguage();
-  const { isPro, showPaywall, subscription, isTrial, isInFreeWindow, freeWindowDaysLeft } = usePlan();
+  const { isPro, showPaywall, subscription, isTrial } = usePlan();
   const { freeTracks, premiumTracks, loading: musicLoading, getAuto } = useMusic();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  // Account subscription OR the active event itself being unlocked (free
+  // first event / paid one-off, within its window) — either one means this
+  // recording will render Pro-quality, so premium frames/music/effects
+  // shouldn't show as locked in that case either.
+  const effectiveIsPro = isPro || (!!activeEvent && getEventUnlockStatus(activeEvent) === 'unlocked');
 
   const [duration, setDuration] = useState(10);
   const [selectedEffect, setSelectedEffect] = useState<VideoPreset>(DEFAULT_PRESET);
   const effect: VideoPreset = selectedEffect;
   const [musicSelection, setMusicSelection] = useState<MusicSelection>(MUSIC_AUTO_ID);
+
+  // Pre-fill with the event's default track (set at event creation) whenever
+  // the active event changes — the user can still override it for this
+  // recording via the music picker below, this is just the starting point.
+  useEffect(() => {
+    setMusicSelection(activeEvent?.music || MUSIC_AUTO_ID);
+  }, [activeEvent?.id]);
+
   const [showSheet, setShowSheet] = useState(false);
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [kioskMode, setKioskMode] = useState(false);
@@ -765,7 +780,7 @@ export default function HomeScreen() {
   const outerGlowOpacity = useRef(new Animated.Value(0.25)).current;
   const kioskBadgeOpacity = useRef(new Animated.Value(0)).current;
 
-  const autoTrack = getAuto(effect, isPro);
+  const autoTrack = getAuto(effect, effectiveIsPro);
   const allTracks = [...freeTracks, ...premiumTracks];
   const activeEffect = UI_EFFECTS.find(e => e.id === selectedEffect) ?? UI_EFFECTS[0];
 
@@ -892,7 +907,7 @@ export default function HomeScreen() {
   };
 
   const handleEffectSelect = (effectId: VideoPreset) => {
-    const isLocked = !isPro && (effectId === 'cinematic' || effectId === 'hype');
+    const isLocked = !effectiveIsPro && (effectId === 'cinematic' || effectId === 'hype');
 
     if (isLocked) {
       openPaywallFromConfig(effectId === 'cinematic' ? 'cinematic' : 'hype');
@@ -921,14 +936,6 @@ export default function HomeScreen() {
   };
 
   const subscriptionBanner = React.useMemo(() => {
-    if (isInFreeWindow) {
-      const msgs: Record<string, string> = {
-        pt: `Acesso completo grátis: ${freeWindowDaysLeft} dia(s) restantes`,
-        en: `Full free access: ${freeWindowDaysLeft} day(s) left`,
-        es: `Acceso completo gratis: ${freeWindowDaysLeft} día(s) restantes`,
-      };
-      return { type: 'free_window' as const, label: msgs[language] ?? msgs.pt };
-    }
     if (!isPro && !isTrial) return null;
     if (isTrial) {
       const days = getTrialRemainingDays(subscription.trialStartAt, subscription.plan);
@@ -949,7 +956,7 @@ export default function HomeScreen() {
       return { type: 'pro' as const, expiresAt: expiry, label: msgs[language] ?? msgs.pt };
     }
     return null;
-  }, [isPro, isTrial, isInFreeWindow, freeWindowDaysLeft, subscription, language]);
+  }, [isPro, isTrial, subscription, language]);
 
   return (
     <LinearGradient colors={['#0D0820', '#0A0F2E', '#0D0820']} style={styles.container}>
@@ -984,7 +991,7 @@ export default function HomeScreen() {
             style={styles.subscriptionBannerGrad}
           >
             <MaterialIcons
-              name={subscriptionBanner.type === 'pro' ? 'star' : subscriptionBanner.type === 'free_window' ? 'card-giftcard' : 'celebration'}
+              name={subscriptionBanner.type === 'pro' ? 'star' : 'celebration'}
               size={13}
               color={subscriptionBanner.type === 'pro' ? '#10B981' : '#F59E0B'}
             />
@@ -1057,6 +1064,37 @@ export default function HomeScreen() {
             </View>
           )}
         </View>
+
+        {!isPro && activeEvent && (() => {
+          const unlockStatus = getEventUnlockStatus(activeEvent);
+          if (unlockStatus === 'unlocked') return null;
+
+          let label: string = t.events.locked;
+          let icon = 'lock-outline';
+          let color = Colors.Warning;
+
+          if (unlockStatus === 'scheduled' && activeEvent.eventDate) {
+            const windowStartMs = new Date(activeEvent.eventDate).getTime() - 24 * 60 * 60 * 1000;
+            const dateLabel = new Date(windowStartMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+            label = t.events.unlockScheduledDetailed.replace('{{date}}', dateLabel);
+            icon = 'schedule';
+            color = Colors.Secondary;
+          } else if (unlockStatus === 'expired') {
+            label = t.events.unlockExpired;
+            icon = 'history';
+            color = Colors.TextSubtle;
+          }
+
+          return (
+            <Pressable
+              style={[styles.recordUnlockBadge, { backgroundColor: color + '1A', borderColor: color + '44' }]}
+              onPress={() => unlockStatus === 'locked' && showPaywall('event_limit')}
+            >
+              <MaterialIcons name={icon as any} size={12} color={color} />
+              <Text style={[styles.recordUnlockBadgeText, { color }]}>{label}</Text>
+            </Pressable>
+          );
+        })()}
 
         {showEventPicker && (
           <View style={styles.eventDropdown}>
@@ -1272,7 +1310,7 @@ export default function HomeScreen() {
         setSelectedEffect={handleEffectSelect}
         musicSelection={musicSelection}
         setMusicSelection={setMusicSelection}
-        isPro={isPro}
+        isPro={effectiveIsPro}
         onUpgrade={() => openPaywallFromConfig('premium_music')}
         freeTracks={freeTracks}
         premiumTracks={premiumTracks}
@@ -1387,6 +1425,26 @@ const styles = StyleSheet.create({
     color: '#F59E0B',
     fontSize: 10,
     fontWeight: FontWeight.bold,
+  },
+
+  recordUnlockBadge: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    alignItems: 'flex-start',
+    gap: 5,
+    marginTop: Spacing.xs,
+    maxWidth: '92%',
+    borderRadius: Radius.lg,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderWidth: 1,
+  },
+  recordUnlockBadgeText: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: FontWeight.semibold,
+    lineHeight: 15,
+    marginTop: 1,
   },
 
   eventDropdown: {

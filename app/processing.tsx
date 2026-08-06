@@ -10,6 +10,7 @@ import { MusicTrack } from '../constants/music';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../constants/theme';
 import { useLanguage } from '../hooks/useLanguage';
 import { getSupabaseClient } from '@/template';
+import { getDisplayVideoUrl } from '../services/videoService';
 
 const FINAL_VIDEO_WAIT_TIMEOUT_MS = 90000;
 const FINAL_VIDEO_POLL_INTERVAL_MS = 2500;
@@ -220,12 +221,18 @@ export default function ProcessingScreen() {
 
         if (cancelledRef.current) return;
 
+        // Anti-refund: for events unlocked via a one-off purchase, this
+        // resolves to the watermarked variant until clean_available_at has
+        // passed — must be what both the public kiosk feed (recording_state,
+        // readable without login) and the local preview screen show.
+        const displayUrl = getDisplayVideoUrl(video) || finalVideoUrl;
+
         await supabase
           .from('recording_state')
           .upsert({
             event_id: String(eventId),
             status: 'ready',
-            video_url: video.shareUrl || finalVideoUrl,
+            video_url: displayUrl,
             thumbnail_url: null,
             qr_ready: true,
             updated_at: new Date().toISOString(),
@@ -236,14 +243,14 @@ export default function ProcessingScreen() {
         router.replace({
           pathname: '/preview',
           params: {
-            shareUrl: video.shareUrl || finalVideoUrl,
+            shareUrl: displayUrl,
             effect,
             eventName,
             eventColor,
             logoUrl: logoUrl || '',
             duration: video.duration?.toString?.() || duration || '15',
             thumbnailUri: '',
-            localVideoUri: finalVideoUrl,
+            localVideoUri: displayUrl,
             kioskMode: kioskMode || '0',
           },
         });

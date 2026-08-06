@@ -17,6 +17,11 @@ export interface Event {
   frameCloudinaryId?: string;
   createdAt: string;
   videoCount: number;
+  // Real-world date of the event — immutable once set (enforced server-side).
+  // Anchors per-event Pro unlocks (free first event / one-off purchase) so
+  // they apply around the actual event date, not the purchase/signup date.
+  eventDate?: string;
+  unlockSource?: 'purchase' | 'free_first_event';
 }
 
 export interface Video {
@@ -32,6 +37,14 @@ export interface Video {
   shareCode: string;
   createdAt: string;
   downloads: number;
+  // Anti-refund split for paid access (one-off purchase or subscription) —
+  // null for the free first event, which never had a payment to refund.
+  videoUrlWatermarked?: string;
+  cleanAvailableAt?: string;
+  // Set only by the reconcile-clean-video cron job once it re-confirms, at
+  // hold expiry, that no refund landed — this (not cleanAvailableAt) is
+  // what actually gates which URL is shown, see getDisplayVideoUrl.
+  cleanConfirmedAt?: string;
 }
 
 export interface VideoFrame {

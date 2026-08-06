@@ -42,6 +42,17 @@ interface RCWebhookEvent {
     price_in_purchased_currency: number | null;
     product_id: string;
     purchased_at_ms: number;
+    // Only present on CANCELLATION events. CUSTOMER_SUPPORT is the one
+    // value that means an actual refund/chargeback — the others are
+    // voluntary cancels, billing failures, etc. and must NOT count as
+    // a refund for the anti-abuse escalation (item 7).
+    cancel_reason?:
+      | 'UNSUBSCRIBE'
+      | 'BILLING_ERROR'
+      | 'DEVELOPER_INITIATED'
+      | 'PRICE_INCREASE'
+      | 'CUSTOMER_SUPPORT'
+      | null;
     store: 'APP_STORE' | 'PLAY_STORE' | 'STRIPE' | 'PROMOTIONAL';
     subscriber_attributes: Record<string, any>;
     transaction_id: string | null;
@@ -61,6 +72,8 @@ interface RCWebhookEvent {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const EVENT_PASS_PRODUCT_ID = 'com.ironman.spinshot.app.event.pass';
 
 function mapProductToPlan(productId: string): 'pro_monthly' | 'pro_annual' | 'free' {
   if (productId.includes('monthly')) return 'pro_monthly';
@@ -158,7 +171,6 @@ function buildSyncResult(event: RCWebhookEvent['event']): SyncResult | null {
     // No state change needed for these
     case 'SUBSCRIBER_ALIAS':
     case 'TRANSFER':
-    case 'NON_RENEWING_PURCHASE':
       return null;
 
     default:
@@ -258,6 +270,114 @@ serve(async (req: Request) => {
 
   console.log(`[rc-webhook] ${rcEvent.type} user=${userId} product=${rcEvent.product_id} env=${rcEvent.environment}`);
 
+  // ── Supabase admin client ──────────────────────────────────────────────────
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
+
+  // ── One-off event-pass purchase — audit log only ───────────────────────────
+  // The actual unlock is granted synchronously by validate-purchase's
+  // 'unlock_event' action right after the client's purchase call (same
+  // pattern as rc_validate for subscriptions) — RC's webhook payload has no
+  // eventId to correlate against, so this is a reconciliation trail, not
+  // the primary grant mechanism. Never touches user_profiles.
+  if (rcEvent.type === 'NON_RENEWING_PURCHASE') {
+    const { error: logError } = await supabaseAdmin.from('subscription_events').insert({
+      user_id:        userId,
+      event_type:     'event_pass_purchased_rc',
+      plan:           null,
+      platform:       mapPlatform(rcEvent.store),
+      purchase_token: rcEvent.transaction_id ?? null,
+    });
+
+    if (logError) {
+      console.warn(`[rc-webhook] Failed to log NON_RENEWING_PURCHASE for user ${userId}:`, logError.message);
+    }
+
+    return new Response(JSON.stringify({ ok: true, event: 'event_pass_purchased_rc' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // ── Refund / chargeback ────────────────────────────────────────────────────
+  // RC reuses CANCELLATION for both a voluntary cancel and an actual refund
+  // — cancel_reason is what tells them apart. Only CUSTOMER_SUPPORT means
+  // money actually came back (Apple/Google/RC-billing refund).
+  const isRefund = rcEvent.type === 'CANCELLATION' && rcEvent.cancel_reason === 'CUSTOMER_SUPPORT';
+
+  if (isRefund && rcEvent.product_id === EVENT_PASS_PRODUCT_ID) {
+    // One-off event pass refunded — revoke that specific event's unlock.
+    // purchase_transaction_id is left untouched (protected column, see
+    // 20260805133017_event_pass_fraud_hardening.sql) so this exact
+    // transaction can never be matched as "available" again in
+    // validate-purchase's unlock_event.
+    const transactionId = rcEvent.transaction_id ?? rcEvent.original_transaction_id;
+
+    if (transactionId) {
+      const { data: refundedEvent, error: findError } = await supabaseAdmin
+        .from('events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('purchase_transaction_id', transactionId)
+        .eq('unlock_source', 'purchase')
+        .maybeSingle();
+
+      if (findError) {
+        console.error(`[rc-webhook] Failed to look up refunded event for user ${userId}:`, findError.message);
+      } else if (refundedEvent) {
+        const { error: revokeError } = await supabaseAdmin
+          .from('events')
+          .update({ unlock_source: null, unlocked_at: null })
+          .eq('id', refundedEvent.id);
+
+        if (revokeError) {
+          console.error(`[rc-webhook] Failed to revoke event ${refundedEvent.id}:`, revokeError.message);
+        } else {
+          console.log(`[rc-webhook] ✓ Revoked event pass unlock: event=${refundedEvent.id} user=${userId}`);
+        }
+      } else {
+        // Already revoked, or the transaction never matched an event
+        // (e.g. it lost the double-spend race in unlock_event). Not an
+        // error — still counts toward refund_count below.
+        console.warn(`[rc-webhook] Refunded event-pass transaction not matched to any unlocked event: user=${userId} tx=${transactionId}`);
+      }
+    } else {
+      console.warn(`[rc-webhook] Event pass refund with no transaction_id: user=${userId}`);
+    }
+
+    const { error: rpcError } = await supabaseAdmin.rpc('increment_refund_count', { p_user_id: userId });
+    if (rpcError) {
+      console.error(`[rc-webhook] Failed to increment refund_count for user ${userId}:`, rpcError.message);
+    }
+
+    const { error: refundLogError } = await supabaseAdmin.from('subscription_events').insert({
+      user_id:        userId,
+      event_type:     'event_pass_refunded',
+      plan:           null,
+      platform:       mapPlatform(rcEvent.store),
+      purchase_token: transactionId ?? null,
+    });
+    if (refundLogError) {
+      console.warn(`[rc-webhook] Failed to log event_pass_refunded for user ${userId}:`, refundLogError.message);
+    }
+
+    return new Response(JSON.stringify({ ok: true, event: 'event_pass_refunded' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (isRefund) {
+    // Subscription refund — bump refund_count on top of the normal
+    // cancelled-plan sync below (buildSyncResult already sets the account
+    // to 'cancelled' with expiresAt taken from RC, which reflects the
+    // refund's immediate revocation on Apple/Google's side).
+    const { error: rpcError } = await supabaseAdmin.rpc('increment_refund_count', { p_user_id: userId });
+    if (rpcError) {
+      console.error(`[rc-webhook] Failed to increment refund_count for user ${userId}:`, rpcError.message);
+    }
+  }
+
   // ── Build sync result ──────────────────────────────────────────────────────
   const syncResult = buildSyncResult(rcEvent);
 
@@ -267,12 +387,6 @@ serve(async (req: Request) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-
-  // ── Supabase admin client ──────────────────────────────────────────────────
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  );
 
   // ── Verify user exists ─────────────────────────────────────────────────────
   const { data: userProfile, error: profileError } = await supabaseAdmin

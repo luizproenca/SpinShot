@@ -162,22 +162,11 @@ export default function SettingsScreen() {
   };
 
   const handleChangePassword = () => {
-    showAlert(t.settings.resetPassword, t.settings.resetPasswordMsg, [
-      { text: t.common.cancel, style: 'cancel' },
-      {
-        text: t.settings.sendEmail,
-        onPress: async () => {
-          try {
-            const supabase = getSupabaseClient();
-            const { error } = await supabase.auth.resetPasswordForEmail(user?.email || '');
-            if (error) throw error;
-            showAlert(t.settings.emailSent, t.settings.emailSentMsg);
-          } catch (e: any) {
-            showAlert(t.common.error, e.message || t.settings.resetPasswordMsg);
-          }
-        },
-      },
-    ]);
+    // Repontado pro fluxo de OTP em /(auth)/forgot-password — o antigo
+    // alerta disparava o e-mail de recuperação mas o link nele não tinha
+    // pra onde ir (nenhuma tela tratava o redirect), então o fluxo morria
+    // ali. O de OTP é o mesmo usado no cadastro e efetivamente funciona.
+    router.push({ pathname: '/(auth)/forgot-password', params: { email: user?.email || '' } });
   };
 
   const handleRestorePurchases = async () => {

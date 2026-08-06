@@ -219,9 +219,121 @@ serve(async (req: Request) => {
       }
     }
 
+    // ── UNLOCK_EVENT — consumable one-off purchase that unlocks a single
+    // event (see purchaseEventPass in contexts/PlanContext.tsx). Never
+    // trusts the client's customerInfoJson for the actual grant — always
+    // re-checks against RevenueCat's own REST API, same discipline as
+    // rc_validate above.
+    if (action === 'unlock_event') {
+      const eventId = body.eventId;
+      if (!eventId || typeof eventId !== 'string') {
+        return new Response(JSON.stringify({ success: false, error: 'eventId is required' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: eventRow } = await supabaseAdmin
+        .from('events')
+        .select('id, unlock_source')
+        .eq('id', eventId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (!eventRow) {
+        return new Response(JSON.stringify({ success: false, error: 'Event not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (eventRow.unlock_source) {
+        // Already unlocked (free first event or an earlier purchase) —
+        // nothing to do, and nothing was charged twice.
+        return new Response(JSON.stringify({ success: true, alreadyUnlocked: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Repeat-refund accounts lose access to one-off purchases (they can
+      // still subscribe) — checked before touching RC at all.
+      const { data: profileRow } = await supabaseAdmin
+        .from('user_profiles')
+        .select('refund_count')
+        .eq('id', user.id)
+        .single();
+
+      if ((profileRow?.refund_count ?? 0) >= 2) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'refund_limit_reached',
+        }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      try {
+        const subscriber = await fetchRCSubscriber(user.id);
+        const nonSubscriptions = subscriber?.subscriber?.non_subscriptions ?? {};
+        const eventPassPurchases: any[] = nonSubscriptions['com.ironman.spinshot.app.event.pass'] ?? [];
+
+        // Which specific RC transactions has this account already spent on
+        // some event? (Kept on the event row even after a refund revokes
+        // unlock_source — see protect_event_entitlement_columns — so a
+        // refunded transaction can never be matched as "available" again.)
+        const { data: consumedRows } = await supabaseAdmin
+          .from('events')
+          .select('purchase_transaction_id')
+          .eq('user_id', user.id)
+          .not('purchase_transaction_id', 'is', null);
+
+        const consumedIds = new Set((consumedRows ?? []).map((r: any) => r.purchase_transaction_id));
+
+        // NOTE: assumes each entry in non_subscriptions has a stable unique
+        // `id` field — confirmed by inspecting a real RC subscriber
+        // response before relying on this in production.
+        const availablePurchase = eventPassPurchases.find((p: any) => p?.id && !consumedIds.has(p.id));
+
+        if (!availablePurchase) {
+          console.warn(`[validate-purchase] unlock_event: no unused pass. total=${eventPassPurchases.length} consumed=${consumedIds.size} sample=${JSON.stringify(eventPassPurchases[0] ?? null)}`);
+          return new Response(JSON.stringify({ success: false, error: 'No unused event pass found for this account.' }), {
+            status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const { error: updateError } = await supabaseAdmin
+          .from('events')
+          .update({
+            unlock_source: 'purchase',
+            unlocked_at: new Date().toISOString(),
+            purchase_transaction_id: availablePurchase.id,
+          })
+          .eq('id', eventId)
+          .eq('user_id', user.id);
+
+        if (updateError) throw updateError;
+
+        await supabaseAdmin.from('subscription_events').insert({
+          user_id:    user.id,
+          event_type: 'event_pass_unlocked',
+          plan:       null,
+          platform:   body.platform ?? 'unknown',
+        });
+
+        console.log(`[validate-purchase] unlock_event user=${user.id} event=${eventId} tx=${availablePurchase.id}`);
+
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (rcErr: any) {
+        console.error('[validate-purchase] unlock_event RC error:', rcErr.message);
+        return new Response(JSON.stringify({ success: false, error: rcErr.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // ── ACTIVATE — disabled. There is no IAP free trial anymore (removed in
-    // favor of the 30-day reverse-trial window every new account already
-    // gets from signup — see FREE_WINDOW_DAYS in contexts/PlanContext.tsx).
+    // favor of per-event unlocks: the first event a new account creates is
+    // free, and later events need either an active subscription or a
+    // one-off event-pass purchase — see 20260804142000_event_entitlement.sql
+    // and the unlock_event action above.
     // This action used to grant a free trial/active subscription with zero
     // payment verification; since there's no legitimate free grant left to
     // hand out here and no real web payment processor is wired up, it's now
@@ -259,7 +371,7 @@ serve(async (req: Request) => {
       // Always read the DB profile first
       const { data: profile } = await supabaseAdmin
         .from('user_profiles')
-        .select('subscription_plan, subscription_status, subscription_expires_at, trial_start_at')
+        .select('subscription_plan, subscription_status, subscription_expires_at, trial_start_at, refund_count')
         .eq('id', user.id)
         .single();
 
@@ -272,7 +384,7 @@ serve(async (req: Request) => {
           dbStatus = 'expired';
         }
         const dbIsPro = (dbStatus === 'active' || dbStatus === 'trial') && dbPlan !== 'free';
-        return { plan: dbPlan, status: dbStatus, isPro: dbIsPro, isTrial: dbStatus === 'trial', expiresAt: p?.subscription_expires_at ?? null, trialStartAt: p?.trial_start_at ?? null };
+        return { plan: dbPlan, status: dbStatus, isPro: dbIsPro, isTrial: dbStatus === 'trial', expiresAt: p?.subscription_expires_at ?? null, trialStartAt: p?.trial_start_at ?? null, refundCount: p?.refund_count ?? 0 };
       };
 
       try {
@@ -307,13 +419,14 @@ serve(async (req: Request) => {
           plan: rcPlan, status: rcStatus, isPro: rcIsPro, isTrial,
           expiresAt,
           trialStartAt,
+          refundCount: profile?.refund_count ?? 0,
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch (rcErr: any) {
         console.warn('[validate-purchase] check: RC fallback:', rcErr.message);
         // profile was already read above — use it directly
         if (!profile) {
-          return new Response(JSON.stringify({ plan: 'free', status: 'inactive', isPro: false, isTrial: false, expiresAt: null, trialStartAt: null }), {
+          return new Response(JSON.stringify({ plan: 'free', status: 'inactive', isPro: false, isTrial: false, expiresAt: null, trialStartAt: null, refundCount: 0 }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }

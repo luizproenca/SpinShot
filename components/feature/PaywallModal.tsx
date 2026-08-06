@@ -8,10 +8,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlan } from '../../hooks/usePlan';
+import { useEvents } from '../../hooks/useEvents';
 import { useLanguage } from '../../hooks/useLanguage';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '../../constants/theme';
 import { getCurrentPlatform } from '../../services/subscriptionService';
 import type { IAPProductId, PlanContextType } from '../../contexts/PlanContext';
+
+const EVENT_PASS_PRODUCT = {
+  identifier: 'spinshot_event_pass',
+  productIdentifier: 'com.ironman.spinshot.app.event.pass',
+};
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const SHEET_H = Math.min(SCREEN_H * 0.94, 740);
@@ -225,7 +231,10 @@ export default function PaywallModal() {
     showPaywall,
     paywallTrigger,
     purchasePlan,
+    purchaseEventPass,
+    restoreEventPass,
     restorePurchases,
+    subscription,
     rcPackages,
     rcPackagesLoading,
   } = usePlan() as PlanContextType & {
@@ -238,13 +247,18 @@ export default function PaywallModal() {
     rcPackagesLoading: boolean;
   };
 
+  const { activeEvent } = useEvents();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
 
   const [selectedProduct, setSelectedProduct] = useState<IAPProductId>('spinshot_pro_annual');
   const [purchasing, setPurchasing] = useState(false);
+  const [purchasingEventPass, setPurchasingEventPass] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [resultMsg, setResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Set when a purchase charged the user but failed to apply (network drop
+  // between the two steps) — offers a retry that doesn't charge again.
+  const [showEventPassRetry, setShowEventPassRetry] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(SHEET_H)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -271,6 +285,15 @@ export default function PaywallModal() {
   const monthlyPrice = monthlyPkg?.priceString;
   const annualPrice = annualPkg?.priceString;
   const hasAnyPlan = !!monthlyPrice || !!annualPrice;
+
+  const eventPassPkg = rcPackages.find(
+    p => p.productIdentifier === EVENT_PASS_PRODUCT.productIdentifier || p.identifier === EVENT_PASS_PRODUCT.identifier
+  );
+  const eventPassPrice = eventPassPkg?.priceString;
+  // Only offer the one-off unlock when there's a specific event in context
+  // that isn't already unlocked (free first event or an earlier purchase).
+  const showEventPassOffer = !!activeEvent && !activeEvent.unlockSource && !!eventPassPrice
+    && subscription.refundCount < 2;
 
   const savingsPercent = getAnnualSavings(
     monthlyPkg?.raw?.product?.price ?? 0,
@@ -385,6 +408,62 @@ export default function PaywallModal() {
     t,
   ]);
 
+  const handlePurchaseEventPass = useCallback(async () => {
+    if (!activeEvent) return;
+
+    if (Platform.OS !== 'web') {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
+    }
+
+    setPurchasingEventPass(true);
+    setResultMsg(null);
+    setShowEventPassRetry(false);
+
+    const platform = getCurrentPlatform();
+    const result = await purchaseEventPass(activeEvent.id, platform);
+
+    setPurchasingEventPass(false);
+
+    if (result.success) {
+      setResultMsg({ type: 'success', text: t.paywall.subscription_active_msg });
+      setTimeout(() => {
+        hidePaywall();
+        setResultMsg(null);
+      }, 1800);
+    } else if (result.error !== 'cancelled') {
+      setResultMsg({
+        type: 'error',
+        text: result.chargedNotApplied ? t.paywall.event_pass_charged_not_applied : (result.error || t.paywall.purchase_error),
+      });
+      setShowEventPassRetry(!!result.chargedNotApplied);
+    }
+  }, [activeEvent, purchaseEventPass, hidePaywall, t]);
+
+  const handleRestoreEventPass = useCallback(async () => {
+    if (!activeEvent) return;
+
+    setPurchasingEventPass(true);
+    setResultMsg(null);
+
+    const platform = getCurrentPlatform();
+    const result = await restoreEventPass(activeEvent.id, platform);
+
+    setPurchasingEventPass(false);
+
+    if (result.success) {
+      setShowEventPassRetry(false);
+      setResultMsg({ type: 'success', text: t.paywall.subscription_active_msg });
+      setTimeout(() => {
+        hidePaywall();
+        setResultMsg(null);
+      }, 1800);
+    } else {
+      setResultMsg({ type: 'error', text: result.error || t.paywall.purchase_error });
+    }
+  }, [activeEvent, restoreEventPass, hidePaywall, t]);
+
   const handleRestore = useCallback(async () => {
     haptic();
     setRestoring(true);
@@ -413,7 +492,7 @@ export default function PaywallModal() {
 
   if (!mounted && !isPaywallVisible) return null;
 
-  const isProcessing = purchasing || restoring;
+  const isProcessing = purchasing || restoring || purchasingEventPass;
 
   return (
     <Modal
@@ -454,6 +533,26 @@ export default function PaywallModal() {
             <Text style={styles.heroTitle}>{t.paywall.hero_title}</Text>
             <Text style={styles.heroSub}>{t.paywall.hero_sub}</Text>
           </LinearGradient>
+
+          {showEventPassOffer && (
+            <View style={styles.eventPassBox}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.eventPassTitle}>{t.paywall.event_pass_title}</Text>
+                <Text style={styles.eventPassSub}>{t.paywall.event_pass_sub}</Text>
+              </View>
+              <Pressable
+                onPress={handlePurchaseEventPass}
+                disabled={isProcessing}
+                style={[styles.eventPassBtn, isProcessing && { opacity: 0.6 }]}
+              >
+                {purchasingEventPass ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.eventPassBtnText}>{eventPassPrice}</Text>
+                )}
+              </Pressable>
+            </View>
+          )}
 
           {rcPackagesLoading ? (
             <View style={styles.loadingBox}>
@@ -543,6 +642,20 @@ export default function PaywallModal() {
               </Text>
             </View>
           ) : null}
+
+          {showEventPassRetry && (
+            <Pressable
+              style={styles.eventPassRetryBtn}
+              onPress={handleRestoreEventPass}
+              disabled={isProcessing}
+            >
+              {purchasingEventPass ? (
+                <ActivityIndicator size="small" color={Colors.Primary} />
+              ) : (
+                <Text style={styles.eventPassRetryText}>{t.paywall.event_pass_retry}</Text>
+              )}
+            </Pressable>
+          )}
 
           <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
             <Pressable onPress={handleSubscribe} disabled={isProcessing || !hasAnyPlan}>
@@ -716,6 +829,54 @@ const styles = StyleSheet.create({
   plansRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+
+  eventPassBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.Primary + '55',
+    backgroundColor: Colors.Primary + '14',
+  },
+  eventPassTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.TextPrimary,
+  },
+  eventPassSub: {
+    fontSize: FontSize.xs,
+    color: Colors.TextSubtle,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  eventPassBtn: {
+    backgroundColor: Colors.Primary,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    minWidth: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventPassBtnText: {
+    color: '#fff',
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.sm,
+  },
+
+  eventPassRetryBtn: {
+    alignSelf: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+  },
+  eventPassRetryText: {
+    color: Colors.Primary,
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.sm,
+    textDecorationLine: 'underline',
   },
 
   skeletonPrice: {

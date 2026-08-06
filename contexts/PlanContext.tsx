@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import * as RC from '../services/revenueCatService';
+import { logFunnelEvent } from '../services/funnelAnalyticsService';
 import { AuthContext } from './AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -12,6 +13,11 @@ export type PlanId = 'free' | 'pro';
 export type SubscriptionPlan = 'free' | 'pro_monthly' | 'pro_annual';
 export type SubscriptionStatus = 'inactive' | 'active' | 'trial' | 'expired' | 'cancelled';
 export type IAPProductId = 'spinshot_pro_monthly' | 'spinshot_pro_annual';
+// Consumable one-off purchase — unlocks a single specific event (see
+// purchaseEventPass below), independent of any subscription. Consumable
+// products are never Family-Shareable on the App Store, unlike
+// non-consumables, which sidesteps that whole abuse vector for free.
+export type EventPassProductId = 'spinshot_event_pass';
 
 export interface SubscriptionState {
   plan: SubscriptionPlan;
@@ -21,6 +27,9 @@ export interface SubscriptionState {
   expiresAt: string | null;
   trialStartAt: string | null;
   lastCheckedAt: number | null;
+  // How many times this account has had a purchase refunded — after 2,
+  // one-off event passes are restricted (subscription stays available).
+  refundCount: number;
 }
 
 export interface PlanContextType {
@@ -28,11 +37,6 @@ export interface PlanContextType {
   isPro: boolean;
   isTrial: boolean;
   subscriptionLoading: boolean;
-
-  // "Reverse trial" — first FREE_WINDOW_DAYS days after signup, free
-  // accounts get full Pro-equivalent access with no payment required.
-  isInFreeWindow: boolean;
-  freeWindowDaysLeft: number;
 
   // RC packages (real prices from store)
   rcPackages: RC.RCPackage[];
@@ -58,6 +62,20 @@ export interface PlanContextType {
     productId: IAPProductId,
     platform: 'ios' | 'android' | 'web'
   ) => Promise<{ success: boolean; isTrial: boolean; error?: string }>;
+  // Consumable one-off purchase that unlocks a single specific event —
+  // independent of any subscription. See supabase/functions/validate-purchase
+  // action 'unlock_event'.
+  purchaseEventPass: (
+    eventId: string,
+    platform: 'ios' | 'android' | 'web'
+  ) => Promise<{ success: boolean; error?: string; chargedNotApplied?: boolean }>;
+  // Re-applies an event pass that was already paid for but never got
+  // unlocked (e.g. network dropped between the charge and the unlock
+  // call) — no new purchase, safe to call as a "try again" action.
+  restoreEventPass: (
+    eventId: string,
+    platform: 'ios' | 'android' | 'web'
+  ) => Promise<{ success: boolean; error?: string }>;
   restorePurchases: () => Promise<{ success: boolean; restored: boolean }>;
   cancelSubscription: () => Promise<void>;
   refreshSubscription: () => Promise<void>;
@@ -125,28 +143,10 @@ const DEFAULT_SUBSCRIPTION: SubscriptionState = {
   expiresAt: null,
   trialStartAt: null,
   lastCheckedAt: null,
+  refundCount: 0,
 };
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10 min
-
-// New accounts get full Pro-equivalent access for this many days from signup
-// (a "reverse trial" — no payment method required, replaces the old IAP
-// free-trial period). Keep this value in sync with FREE_WINDOW_DAYS in
-// supabase/functions/process-video/index.ts, which independently enforces
-// the same window server-side (never trust the client for this).
-const FREE_WINDOW_DAYS = 30;
-
-function computeFreeWindow(createdAt: string | undefined | null): { isInFreeWindow: boolean; freeWindowDaysLeft: number } {
-  if (!createdAt) return { isInFreeWindow: false, freeWindowDaysLeft: 0 };
-
-  const signupTime = new Date(createdAt).getTime();
-  if (Number.isNaN(signupTime)) return { isInFreeWindow: false, freeWindowDaysLeft: 0 };
-
-  const elapsedDays = (Date.now() - signupTime) / (24 * 60 * 60 * 1000);
-  const daysLeft = Math.max(0, Math.ceil(FREE_WINDOW_DAYS - elapsedDays));
-
-  return { isInFreeWindow: daysLeft > 0, freeWindowDaysLeft: daysLeft };
-}
 
 const RC_PRODUCT_MAP: Record<IAPProductId, { identifiers: string[]; productIdentifier: string }> = {
   spinshot_pro_monthly: {
@@ -157,6 +157,11 @@ const RC_PRODUCT_MAP: Record<IAPProductId, { identifiers: string[]; productIdent
     identifiers: ['$rc_annual', 'pro_annual'],
     productIdentifier: 'com.ironman.spinshot.app.pro.annual',
   },
+};
+
+const EVENT_PASS_PRODUCT: { identifiers: string[]; productIdentifier: string } = {
+  identifiers: ['spinshot_event_pass'],
+  productIdentifier: 'com.ironman.spinshot.app.event.pass',
 };
 
 export function PlanProvider({ children }: { children: React.ReactNode }) {
@@ -222,6 +227,7 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       expiresAt: data.expiresAt ?? null,
       trialStartAt: data.trialStartAt ?? null,
       lastCheckedAt: Date.now(),
+      refundCount: data.refundCount ?? 0,
     };
 
     setSubscription(newSub);
@@ -360,10 +366,18 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     platform: 'ios' | 'android' | 'web',
   ): Promise<{ success: boolean; isTrial: boolean; error?: string }> => {
     setSubscriptionLoading(true);
+    logFunnelEvent(authUser?.id, 'purchase_attempted', paywallTrigger, { productId, platform });
 
     try {
       if (platform === 'web') {
-        return await webPurchaseFallback(productId, platform, applySubscriptionData);
+        const webResult = await webPurchaseFallback(productId, platform, applySubscriptionData);
+        logFunnelEvent(
+          authUser?.id,
+          webResult.success ? 'purchase_completed' : 'purchase_failed',
+          paywallTrigger,
+          { productId, platform, error: webResult.error },
+        );
+        return webResult;
       }
 
       const packages = rcPackages.length > 0 ? rcPackages : await RC.getOfferings();
@@ -375,6 +389,7 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       );
 
       if (!pkg) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { productId, platform, error: 'plan_not_available' });
         return {
           success: false,
           isTrial: false,
@@ -385,10 +400,12 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       const result = await RC.purchasePackage(pkg);
 
       if (result.isCancelled) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { productId, platform, error: 'cancelled' });
         return { success: false, isTrial: false, error: 'cancelled' };
       }
 
       if (!result.success || !result.customerInfo) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { productId, platform, error: result.error ?? 'purchase_failed' });
         return {
           success: false,
           isTrial: false,
@@ -414,22 +431,124 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
           expiresAt: result.customerInfo.latestExpirationDate,
           trialStartAt: null,
           lastCheckedAt: Date.now(),
+          refundCount: subscription.refundCount,
         };
 
         setSubscription(newSub);
         await persistSubscription(newSub);
 
+        logFunnelEvent(authUser?.id, 'purchase_completed', paywallTrigger, { productId, platform });
         return { success: true, isTrial: false };
       }
 
       const applied = await applySubscriptionData(data);
+      logFunnelEvent(authUser?.id, 'purchase_completed', paywallTrigger, { productId, platform, isTrial: applied.isTrial });
       return { success: true, isTrial: applied.isTrial };
     } catch (e: any) {
+      logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { productId, platform, error: e.message });
       return { success: false, isTrial: false, error: e.message };
     } finally {
       setSubscriptionLoading(false);
     }
-  }, [rcPackages, applySubscriptionData, persistSubscription]);
+  }, [rcPackages, applySubscriptionData, persistSubscription, authUser?.id, paywallTrigger, subscription.refundCount]);
+
+  // ── Purchase a one-off event pass (consumable, unlocks a single event) ─
+  // Calls validate-purchase's unlock_event action and interprets the
+  // result — shared by purchaseEventPass (right after a fresh purchase)
+  // and restoreEventPass (retrying to apply an already-paid-for purchase
+  // that never got applied, e.g. the app died between charge and this
+  // call — no new charge involved, unlock_event is safe to call again).
+  const applyEventUnlock = useCallback(async (
+    eventId: string,
+    platform: 'ios' | 'android' | 'web',
+  ): Promise<{ success: boolean; error?: string }> => {
+    const supabase = getSupabaseClient();
+    const { data, error: fnError } = await supabase.functions.invoke('validate-purchase', {
+      body: { action: 'unlock_event', eventId, platform },
+    });
+
+    if (fnError || !data?.success) {
+      return { success: false, error: data?.error ?? fnError?.message ?? 'unlock_failed' };
+    }
+    return { success: true };
+  }, []);
+
+  const purchaseEventPass = useCallback(async (
+    eventId: string,
+    platform: 'ios' | 'android' | 'web',
+  ): Promise<{ success: boolean; error?: string; chargedNotApplied?: boolean }> => {
+    if (platform === 'web') {
+      return { success: false, error: 'Compra avulsa não disponível na web.' };
+    }
+
+    setSubscriptionLoading(true);
+    logFunnelEvent(authUser?.id, 'purchase_attempted', paywallTrigger, { product: 'event_pass', eventId, platform });
+
+    try {
+      const packages = rcPackages.length > 0 ? rcPackages : await RC.getOfferings();
+
+      const pkg = packages.find(p =>
+        p.productIdentifier === EVENT_PASS_PRODUCT.productIdentifier ||
+        EVENT_PASS_PRODUCT.identifiers.includes(p.identifier)
+      );
+
+      if (!pkg) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { product: 'event_pass', eventId, platform, error: 'plan_not_available' });
+        return { success: false, error: 'Pacote de evento não disponível na loja.' };
+      }
+
+      const result = await RC.purchasePackage(pkg);
+
+      if (result.isCancelled) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { product: 'event_pass', eventId, platform, error: 'cancelled' });
+        return { success: false, error: 'cancelled' };
+      }
+
+      if (!result.success || !result.customerInfo) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { product: 'event_pass', eventId, platform, error: result.error ?? 'purchase_failed' });
+        return { success: false, error: result.error ?? 'Purchase failed' };
+      }
+
+      // Purchase succeeded and was charged — from here on, any failure is
+      // "paid but not applied", not "not purchased", so the UI should
+      // offer a retry (restoreEventPass) instead of buying again.
+      const applied = await applyEventUnlock(eventId, platform);
+
+      if (!applied.success) {
+        logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { product: 'event_pass', eventId, platform, error: applied.error, chargedNotApplied: true });
+        return { success: false, error: applied.error, chargedNotApplied: true };
+      }
+
+      logFunnelEvent(authUser?.id, 'purchase_completed', paywallTrigger, { product: 'event_pass', eventId, platform });
+      return { success: true };
+    } catch (e: any) {
+      logFunnelEvent(authUser?.id, 'purchase_failed', paywallTrigger, { product: 'event_pass', eventId, platform, error: e.message });
+      return { success: false, error: e.message };
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }, [rcPackages, authUser?.id, paywallTrigger, applyEventUnlock]);
+
+  // Retry applying an event pass that was already paid for — no new
+  // RC.purchasePackage call, so this never charges twice.
+  const restoreEventPass = useCallback(async (
+    eventId: string,
+    platform: 'ios' | 'android' | 'web',
+  ): Promise<{ success: boolean; error?: string }> => {
+    setSubscriptionLoading(true);
+    try {
+      const result = await applyEventUnlock(eventId, platform);
+      logFunnelEvent(
+        authUser?.id,
+        result.success ? 'purchase_completed' : 'purchase_failed',
+        paywallTrigger,
+        { product: 'event_pass', eventId, platform, error: result.error, restore: true },
+      );
+      return result;
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }, [authUser?.id, paywallTrigger, applyEventUnlock]);
 
   // ── Restore via RevenueCat SDK ────────────────────────────────────────
   const restorePurchases = useCallback(async (): Promise<{ success: boolean; restored: boolean }> => {
@@ -511,7 +630,8 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     setPaywallTrigger(trigger);
     setPaywallVisible(true);
     loadRCPackages();
-  }, [loadRCPackages]);
+    logFunnelEvent(authUser?.id, 'paywall_viewed', trigger);
+  }, [loadRCPackages, authUser?.id]);
 
   const hidePaywall = useCallback(() => {
     setPaywallVisible(false);
@@ -523,8 +643,7 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     console.warn('[PlanContext] setPlan is deprecated, use purchasePlan instead');
   }, []);
 
-  const { isInFreeWindow, freeWindowDaysLeft } = computeFreeWindow(authUser?.createdAt);
-  const isPro = subscription.isPro || isInFreeWindow;
+  const isPro = subscription.isPro;
 
   return (
     <PlanContext.Provider
@@ -533,9 +652,6 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
         isPro,
         isTrial: subscription.isTrial,
         subscriptionLoading,
-
-        isInFreeWindow,
-        freeWindowDaysLeft,
 
         rcPackages,
         rcPackagesLoading,
@@ -553,6 +669,8 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
         hidePaywall,
 
         purchasePlan,
+        purchaseEventPass,
+        restoreEventPass,
         restorePurchases,
         cancelSubscription,
         refreshSubscription,

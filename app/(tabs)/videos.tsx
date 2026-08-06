@@ -14,6 +14,7 @@ import { useEvents } from '../../hooks/useEvents';
 import { usePlan } from '../../hooks/usePlan';
 import { useLanguage } from '../../hooks/useLanguage';
 import { Video } from '../../services/types';
+import { getDisplayVideoUrl } from '../../services/videoService';
 import { Colors, Spacing, FontSize, FontWeight, Radius } from '../../constants/theme';
 import { PRESET_CONFIGS, isVideoPreset, DEFAULT_PRESET } from '../../services/videoEffectsService';
 import * as Haptics from 'expo-haptics';
@@ -314,17 +315,18 @@ export default function VideosScreen() {
 
   const goPreview = (v: Video) => {
     const matchingEvent = events.find(e => e.id === v.eventId);
+    const displayUrl = getDisplayVideoUrl(v);
     router.push({
       pathname: '/preview',
       params: {
-        shareUrl: v.shareUrl || '',
+        shareUrl: displayUrl,
         effect: v.effect || 'boomerang',
         eventName: v.eventName,
         eventColor: v.eventColor,
         logoUrl: matchingEvent?.logoUri || '',
         duration: String(v.duration),
         thumbnailUri: v.thumbnailUri || '',
-        localVideoUri: v.videoUri || '',
+        localVideoUri: displayUrl,
         kioskMode: '0',
       },
     });
@@ -335,7 +337,7 @@ export default function VideosScreen() {
     router.push({
       pathname: '/share',
       params: {
-        shareUrl: v.shareUrl,
+        shareUrl: getDisplayVideoUrl(v),
         eventName: v.eventName,
         eventColor: v.eventColor,
         logoUrl: matchingEvent?.logoUri || '',

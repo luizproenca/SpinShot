@@ -12,6 +12,7 @@ module.exports = {
     newArchEnabled: true,
     ios: {
       appleTeamId: 'Q6943C4X4V',
+      usesAppleSignIn: true,
       config: {
         usesNonExemptEncryption: false,
       },
@@ -70,6 +71,20 @@ module.exports = {
         },
       ],
       'expo-web-browser',
+      'expo-apple-authentication',
+      [
+        '@react-native-google-signin/google-signin',
+        {
+          // Reversed iOS OAuth client ID from Google Cloud Console (NOT the
+          // web client ID) — wrong value here makes Google sign-in
+          // "cancel" silently on iOS with no error. Real value only exists
+          // after Fase A of the login-social plan is done (Google
+          // Cloud/Firebase console setup); until then this placeholder
+          // means iOS Google sign-in just won't work — Android and email
+          // login are unaffected.
+          iosUrlScheme: process.env.EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME ?? 'com.googleusercontent.apps.PENDING_SETUP',
+        },
+      ],
       '@react-native-community/datetimepicker',
       'expo-asset',
       'expo-font',
