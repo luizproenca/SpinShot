@@ -156,6 +156,14 @@ function EventListCard({
                         style={[styles.unlockChip, { backgroundColor: Colors.Warning + '1A', borderColor: Colors.Warning + '44' }]}
                         onPress={(e) => {
                           e.stopPropagation();
+                          // stopPropagation blocks the card's own onPress
+                          // (which would call onActivate) — without this,
+                          // PaywallModal's activeEvent stays whatever it
+                          // was before, so the event-pass offer for THIS
+                          // specific locked event never renders (App
+                          // Store review rejection 2026-08-13, Guideline
+                          // 2.1(b): couldn't find "Pacote de Evento").
+                          onActivate(event);
                           showPaywall('event_limit');
                         }}
                       >
