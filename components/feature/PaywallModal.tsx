@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Animated,
-  Modal, Platform, ScrollView, Dimensions, ActivityIndicator,
+  Modal, Platform, ScrollView, Dimensions, ActivityIndicator, Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -18,6 +18,13 @@ const EVENT_PASS_PRODUCT = {
   identifier: 'spinshot_event_pass',
   productIdentifier: 'com.ironman.spinshot.app.event.pass',
 };
+
+// Apple guideline 3.1.2(c): apps offering auto-renewable subscriptions must
+// show functional links to the privacy policy and Terms of Use (EULA)
+// directly within the purchase flow — a mention in App Store metadata
+// isn't enough. Same URLs already used in app/subscription.tsx.
+const PRIVACY_URL = 'https://luizproenca.github.io/SpinShot/privacy.html';
+const TERMS_URL = 'https://luizproenca.github.io/SpinShot/terms.html';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const SHEET_H = Math.min(SCREEN_H * 0.94, 740);
@@ -464,6 +471,13 @@ export default function PaywallModal() {
     }
   }, [activeEvent, restoreEventPass, hidePaywall, t]);
 
+  const openUrl = useCallback(async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) await Linking.openURL(url);
+    } catch {}
+  }, []);
+
   const handleRestore = useCallback(async () => {
     haptic();
     setRestoring(true);
@@ -728,6 +742,16 @@ export default function PaywallModal() {
           </Pressable>
 
           <Text style={styles.legalNote}>{t.paywall.legal_note}</Text>
+
+          <View style={styles.legalLinksRow}>
+            <Pressable onPress={() => openUrl(PRIVACY_URL)} hitSlop={8}>
+              <Text style={styles.legalLinkText}>{t.paywall.privacy_policy}</Text>
+            </Pressable>
+            <Text style={styles.legalLinkSep}>·</Text>
+            <Pressable onPress={() => openUrl(TERMS_URL)} hitSlop={8}>
+              <Text style={styles.legalLinkText}>{t.paywall.terms_of_use}</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       </Animated.View>
     </Modal>
@@ -1175,5 +1199,23 @@ const styles = StyleSheet.create({
     color: Colors.TextMuted,
     fontSize: 9,
     lineHeight: 14,
+  },
+
+  legalLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  legalLinkText: {
+    color: Colors.TextSubtle,
+    fontSize: 10,
+    textDecorationLine: 'underline',
+  },
+  legalLinkSep: {
+    color: Colors.TextMuted,
+    fontSize: 10,
   },
 });

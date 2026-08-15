@@ -465,6 +465,8 @@ const translations = {
       cancel_note: 'Cancele a qualquer momento · Sem compromisso',
       restore_purchases: 'Restaurar compras anteriores',
       legal_note: 'Assinatura renovada automaticamente. Gerencie ou cancele nas configurações da loja.',
+      privacy_policy: 'Política de Privacidade',
+      terms_of_use: 'Termos de Uso',
 
       // Included features
       included_title: 'INCLUÍDO NO PRO',
@@ -949,6 +951,8 @@ const translations = {
       cancel_note: 'Cancel anytime · No commitment',
       restore_purchases: 'Restore previous purchases',
       legal_note: 'Subscription auto-renews. Manage or cancel in store settings.',
+      privacy_policy: 'Privacy Policy',
+      terms_of_use: 'Terms of Use',
       included_title: 'INCLUDED IN PRO',
       feature_no_watermark: 'No watermark on all videos',
       feature_fullhd: 'Full HD export (1080p)',
@@ -1425,6 +1429,8 @@ const translations = {
       cancel_note: 'Cancela cuando quieras · Sin compromiso',
       restore_purchases: 'Restaurar compras anteriores',
       legal_note: 'La suscripción se renueva automáticamente. Gestiona o cancela en la configuración de la tienda.',
+      privacy_policy: 'Política de Privacidad',
+      terms_of_use: 'Términos de Uso',
       included_title: 'INCLUIDO EN PRO',
       feature_no_watermark: 'Sin marca de agua en todos los videos',
       feature_fullhd: 'Exportación Full HD (1080p)',
