@@ -8,6 +8,9 @@
  * Body (all optional):
  *   dry_run        boolean  default TRUE — report only, delete nothing
  *   retention_days number   default FREE_RETENTION_DAYS env or 30
+ *   storage_dry_run boolean defaults to dry_run — set false to clean the temp
+ *                           uploads in Supabase Storage live while the video
+ *                           expiry stays in dry run (that is how the cron runs)
  *   orphans        boolean  default false — also sweep raw originals
  *                           (spinshot/<uuid>/video_<ts>, no "_fx") that
  *                           older versions of process-video never deleted
@@ -21,6 +24,12 @@
  *      if its owner has an active subscription, its event was unlocked by
  *      a purchased event pass, or an anti-refund hold is in flight.
  *   3. (orphans=true) delete raw originals older than 1h.
+ *   4. Always: delete temp uploads left in Supabase Storage. The app
+ *      uploads the raw recording to bucket spinshot-videos only so
+ *      Cloudinary can fetch it, and deletes it after success — failed or
+ *      cancelled runs left them behind forever (1.1 GB at the time this
+ *      was written). Only <uuid>/<digits>.<video ext> older than 6h and
+ *      not referenced by any videos row is touched.
  *
  * Every delete is restricted to public_ids matching
  * spinshot/<uuid>/video_<digits>[_fx] — music, frames and anything else
@@ -110,6 +119,7 @@ serve(async (req: Request) => {
   const dryRun = body.dry_run !== false; // anything but an explicit false is a dry run
   const retentionDays = Number(body.retention_days) > 0 ? Number(body.retention_days) : DEFAULT_RETENTION_DAYS;
   const sweepOrphans = body.orphans === true;
+  const storageDryRun = typeof body.storage_dry_run === 'boolean' ? body.storage_dry_run : dryRun;
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -285,6 +295,76 @@ serve(async (req: Request) => {
       sample,
       next_cursor: cursor ?? null,
     };
+  }
+
+  // ── 4. Temp uploads in Supabase Storage ──────────────────────────────
+  {
+    const BUCKET = 'spinshot-videos';
+    const TEMP_ID = /^[0-9a-fA-F-]{36}\/[0-9]+\.(mov|mp4|m4v|webm)$/;
+    const UUID = /^[0-9a-fA-F-]{36}$/;
+    const MIN_AGE_MS = 6 * 60 * 60 * 1000;
+    const bucket = supabase.storage.from(BUCKET);
+
+    try {
+      // Paths still referenced by a videos row (very old rows may point here).
+      const { data: refRows } = await supabase
+        .from('videos')
+        .select('video_url, share_url')
+        .or(`video_url.like.%/${BUCKET}/%,share_url.like.%/${BUCKET}/%`);
+      const referenced = new Set<string>();
+      for (const r of refRows ?? []) {
+        for (const u of [r.video_url, r.share_url]) {
+          const m = typeof u === 'string' ? u.split(`/${BUCKET}/`)[1] : undefined;
+          if (m) referenced.add(decodeURIComponent(m.split('?')[0]));
+        }
+      }
+
+      const { data: top, error: topErr } = await bucket.list('', { limit: 1000 });
+      if (topErr) throw new Error(topErr.message);
+
+      let scanned = 0, staleBytes = 0, deleted = 0, failed = 0;
+      const stale: string[] = [];
+
+      for (const entry of top ?? []) {
+        if (!UUID.test(entry.name)) continue;
+        for (let offset = 0; ; offset += 1000) {
+          const { data: files, error: lsErr } = await bucket.list(entry.name, { limit: 1000, offset });
+          if (lsErr) throw new Error(lsErr.message);
+          for (const f of files ?? []) {
+            scanned++;
+            const path = `${entry.name}/${f.name}`;
+            const age = Date.now() - new Date(f.created_at ?? Date.now()).getTime();
+            if (TEMP_ID.test(path) && age > MIN_AGE_MS && !referenced.has(path)) {
+              stale.push(path);
+              staleBytes += Number((f.metadata as any)?.size ?? 0);
+            }
+          }
+          if ((files?.length ?? 0) < 1000) break;
+        }
+      }
+
+      if (!storageDryRun) {
+        for (let i = 0; i < stale.length; i += 100) {
+          const chunk = stale.slice(i, i + 100);
+          const { data: removed, error: rmErr } = await bucket.remove(chunk);
+          if (rmErr) { failed += chunk.length; console.error('[expire-free-videos] storage remove:', rmErr.message); }
+          else deleted += removed?.length ?? 0;
+        }
+      }
+
+      report.storage_temp = {
+        dry_run: storageDryRun,
+        scanned,
+        stale: stale.length,
+        stale_mb: Math.round((staleBytes / 1024 / 1024) * 10) / 10,
+        deleted,
+        failed,
+        sample: stale.slice(0, 3),
+      };
+    } catch (e: any) {
+      console.error('[expire-free-videos] storage sweep failed:', e?.message ?? e);
+      report.storage_temp = { error: String(e?.message ?? e) };
+    }
   }
 
   console.log('[expire-free-videos]', JSON.stringify(report));

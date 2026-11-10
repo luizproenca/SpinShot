@@ -149,7 +149,10 @@ async function deleteLocalFile(localUri: string): Promise<void> {
 
 async function deleteStorageObject(fileName: string): Promise<void> {
   try {
-    await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
+    if (error) {
+      console.warn('[videoService] failed to delete intermediate storage object:', fileName, error.message);
+    }
   } catch (err) {
     console.warn('[videoService] failed to delete intermediate storage object:', err);
   }
@@ -381,65 +384,73 @@ export const videoService = {
     // read again after this point, so free up the device's storage.
     await deleteLocalFile(localSourceUri);
 
-    onProgress?.('processing');
-    const isPro = await getStoredIsPro();
+    // From here on the raw upload only exists to feed Cloudinary. If anything
+    // fails or the user cancels, delete it — otherwise it sits in Storage
+    // forever (this leaked >1 GB before the cleanup was added).
+    try {
+      onProgress?.('processing');
+      const isPro = await getStoredIsPro();
 
-    const musicCloudinaryId = resolveMusicForProcessing(
-      data.musicTracks ?? [],
-      data.musicSelection,
-      data.effect || 'boomerang',
-      isPro,
-    );
+      const musicCloudinaryId = resolveMusicForProcessing(
+        data.musicTracks ?? [],
+        data.musicSelection,
+        data.effect || 'boomerang',
+        isPro,
+      );
 
-    const processed = await processVideoWithEffects(
-      storageUrl,
-      data.effect || 'boomerang',
-      userId,
-      musicCloudinaryId,
-      data.frameCloudinaryId || null,
-      isPro,
-      data.duration || 10,
-      data.eventId || null,
-    );
+      const processed = await processVideoWithEffects(
+        storageUrl,
+        data.effect || 'boomerang',
+        userId,
+        musicCloudinaryId,
+        data.frameCloudinaryId || null,
+        isPro,
+        data.duration || 10,
+        data.eventId || null,
+      );
 
-    await waitForRemoteVideoReady(processed.processedUrl, signal);
+      await waitForRemoteVideoReady(processed.processedUrl, signal);
 
-    // Cloudinary already fetched + materialized the final video — the
-    // intermediate Supabase Storage copy was only needed to get it there.
-    await deleteStorageObject(storageFileName);
+      // Cloudinary already fetched + materialized the final video — the
+      // intermediate Supabase Storage copy was only needed to get it there.
+      await deleteStorageObject(storageFileName);
 
-    onProgress?.('saving');
+      onProgress?.('saving');
 
-    const { data: row, error } = await supabase
-      .from('videos')
-      .insert({
-        user_id: userId,
-        event_id: data.eventId || null,
-        event_name: data.eventName || 'Evento',
-        event_color: data.eventColor || '#8B5CF6',
-        video_url: processed.processedUrl,
-        thumbnail_uri: processed.thumbnailUrl,
-        effect: data.effect || 'normal',
-        duration: data.duration || 15,
-        share_url: processed.processedUrl,
-        share_code: shareCode,
-        downloads: 0,
-        video_url_watermarked: processed.watermarkedUrl,
-        clean_available_at: processed.cleanAvailableAt,
-        hold_reason: processed.holdReason,
-      })
-      .select()
-      .single();
+      const { data: row, error } = await supabase
+        .from('videos')
+        .insert({
+          user_id: userId,
+          event_id: data.eventId || null,
+          event_name: data.eventName || 'Evento',
+          event_color: data.eventColor || '#8B5CF6',
+          video_url: processed.processedUrl,
+          thumbnail_uri: processed.thumbnailUrl,
+          effect: data.effect || 'normal',
+          duration: data.duration || 15,
+          share_url: processed.processedUrl,
+          share_code: shareCode,
+          downloads: 0,
+          video_url_watermarked: processed.watermarkedUrl,
+          clean_available_at: processed.cleanAvailableAt,
+          hold_reason: processed.holdReason,
+        })
+        .select()
+        .single();
 
-    if (error) throw new Error(error.message);
+      if (error) throw new Error(error.message);
 
-    if (data.eventId) {
-      try {
-        await eventService.incrementVideoCount(data.eventId);
-      } catch {}
+      if (data.eventId) {
+        try {
+          await eventService.incrementVideoCount(data.eventId);
+        } catch {}
+      }
+
+      return toVideo(row);
+    } catch (err) {
+      await deleteStorageObject(storageFileName);
+      throw err;
     }
-
-    return toVideo(row);
   },
 
   async deleteVideo(userId: string, videoId: string): Promise<void> {
