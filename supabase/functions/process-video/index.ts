@@ -410,13 +410,17 @@ Deno.serve(async (req: Request) => {
       `w_640,h_480,c_fill,so_1/f_jpg/${effectPublicId}.jpg`;
 
     // 7) Delete original upload after final asset is ready
-    /*try {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      const deleteResult = await deleteCloudinaryVideo(uploadedPublicId);
-      console.log('Original deleted:', uploadedPublicId, deleteResult);
+    // The effect was fully materialized as `effectPublicId` in step 3 and
+    // every URL returned below references only that asset, so the raw
+    // upload is dead weight (it used to double storage per video). A
+    // failure here is non-fatal — expire-free-videos (orphans mode)
+    // sweeps any original that slips through.
+    try {
+      await deleteCloudinaryVideo(uploadedPublicId);
+      console.log('Original deleted:', uploadedPublicId);
     } catch (deleteErr) {
       console.warn('Failed to delete original video:', deleteErr);
-    } */
+    }
 
     return new Response(
       JSON.stringify({

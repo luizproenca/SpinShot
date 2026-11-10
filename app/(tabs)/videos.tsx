@@ -17,9 +17,50 @@ import { Video } from '../../services/types';
 import { getDisplayVideoUrl } from '../../services/videoService';
 import { Colors, Spacing, FontSize, FontWeight, Radius } from '../../constants/theme';
 import { PRESET_CONFIGS, isVideoPreset, DEFAULT_PRESET } from '../../services/videoEffectsService';
+import { FREE_VIDEO_RETENTION_DAYS } from '../../constants/config';
 import * as Haptics from 'expo-haptics';
 
 const THUMB_BLURHASH = 'LGFFaXYk^6#M@-5c,1J5@[or[Q6.';
+
+// ─── Retention (free videos are removed from the cloud after N days) ───────
+// Mirrors the server rule in expire-free-videos: kept if the owner has an
+// active subscription or the event was unlocked by a purchased pass.
+// Returns whole days left (0 = today), or null when the video isn't expiring.
+const DAY_MS = 24 * 60 * 60 * 1000;
+function getDaysLeft(
+  video: Video,
+  events: { id: string; unlockSource?: string }[],
+  isPro: boolean,
+): number | null {
+  if (video.expiredAt || isPro) return null;
+  const ev = events.find(e => e.id === video.eventId);
+  if (ev?.unlockSource === 'purchase') return null;
+  const expiresAt = new Date(video.createdAt).getTime() + FREE_VIDEO_RETENTION_DAYS * DAY_MS;
+  return Math.max(0, Math.floor((expiresAt - Date.now()) / DAY_MS));
+}
+
+function ExpiryChip({ video, daysLeft }: { video: Video; daysLeft: number | null }) {
+  const { t } = useLanguage();
+  if (!video.expiredAt && daysLeft === null) return null;
+
+  const expired = !!video.expiredAt;
+  const urgent = !expired && daysLeft !== null && daysLeft <= 7;
+  const color = expired ? Colors.Error : urgent ? Colors.Warning : Colors.TextSubtle;
+  const label = expired
+    ? t.videos.expiredChip
+    : daysLeft === 0
+    ? t.videos.expiresToday
+    : daysLeft === 1
+    ? t.videos.expiresTomorrow
+    : t.videos.expiresInDays.replace('{{n}}', String(daysLeft));
+
+  return (
+    <View style={[styles.expiryChip, { borderColor: color + '55', backgroundColor: color + '18' }]}>
+      <MaterialIcons name={expired ? 'cloud-off' : 'schedule'} size={11} color={color} />
+      <Text style={[styles.expiryChipText, { color }]}>{label}</Text>
+    </View>
+  );
+}
 
 // ─── Video Thumbnail ───────────────────────────────────────────────────────
 function VideoThumb({ video, size = 72 }: { video: Video; size?: number }) {
@@ -82,12 +123,14 @@ function FeaturedCard({
   onShare,
   onDelete,
   latestLabel,
+  daysLeft,
 }: {
   video: Video;
   onPreview: () => void;
   onShare: () => void;
   onDelete: () => void;
   latestLabel: string;
+  daysLeft: number | null;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const preset = isVideoPreset(video.effect) ? video.effect : DEFAULT_PRESET;
@@ -149,6 +192,8 @@ function FeaturedCard({
                 </>
               )}
             </View>
+
+            <ExpiryChip video={video} daysLeft={daysLeft} />
           </View>
 
           {/* CTA */}
@@ -178,11 +223,13 @@ function VideoCard({
   onPreview,
   onShare,
   onDelete,
+  daysLeft,
 }: {
   video: Video;
   onPreview: () => void;
   onShare: () => void;
   onDelete: () => void;
+  daysLeft: number | null;
 }) {
   const preset = isVideoPreset(video.effect) ? video.effect : DEFAULT_PRESET;
   const presetInfo = PRESET_CONFIGS[preset];
@@ -227,6 +274,8 @@ function VideoCard({
                 </>
               )}
             </View>
+
+            <ExpiryChip video={video} daysLeft={daysLeft} />
           </View>
 
           <View style={styles.cardActions}>
@@ -314,6 +363,7 @@ export default function VideosScreen() {
   const rest = sorted.slice(1);
 
   const goPreview = (v: Video) => {
+    if (v.expiredAt) { showAlert(t.videos.expiredTitle, t.videos.expiredMsg); return; }
     const matchingEvent = events.find(e => e.id === v.eventId);
     const displayUrl = getDisplayVideoUrl(v);
     router.push({
@@ -333,6 +383,7 @@ export default function VideosScreen() {
   };
 
   const goShare = (v: Video) => {
+    if (v.expiredAt) { showAlert(t.videos.expiredTitle, t.videos.expiredMsg); return; }
     const matchingEvent = events.find(e => e.id === v.eventId);
     router.push({
       pathname: '/share',
@@ -438,6 +489,18 @@ export default function VideosScreen() {
         </Pressable>
       )}
 
+      {!isPro && videos.some(v => getDaysLeft(v, events, isPro) !== null) && (
+        <View style={styles.retentionBanner}>
+          <MaterialIcons name="schedule" size={18} color={Colors.Warning} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.upsellBannerTitle}>
+              {t.videos.retentionTitle.replace('{{days}}', String(FREE_VIDEO_RETENTION_DAYS))}
+            </Text>
+            <Text style={styles.upsellBannerSub}>{t.videos.retentionSub}</Text>
+          </View>
+        </View>
+      )}
+
       <View style={styles.searchBar}>
         <MaterialIcons name="search" size={18} color={Colors.TextMuted} />
         <TextInput
@@ -480,6 +543,7 @@ export default function VideosScreen() {
             onShare={() => goShare(latest)}
             onDelete={() => confirmDelete(latest)}
             latestLabel={t.videos.latest}
+            daysLeft={getDaysLeft(latest, events, isPro)}
           />
         </>
       )}
@@ -545,6 +609,7 @@ export default function VideosScreen() {
             onPreview={() => goPreview(item)}
             onShare={() => goShare(item)}
             onDelete={() => confirmDelete(item)}
+            daysLeft={getDaysLeft(item, events, isPro)}
           />
         )}
       />
@@ -675,6 +740,17 @@ const styles = StyleSheet.create({
   cardEffectText: { color: Colors.TextSubtle, fontSize: 11 },
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 3, flexWrap: 'wrap' },
   cardMetaText: { color: Colors.TextMuted, fontSize: 10 },
+  expiryChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    borderWidth: 1, borderRadius: Radius.full,
+    paddingHorizontal: 7, paddingVertical: 2, marginTop: 4,
+  },
+  expiryChipText: { fontSize: 10, fontWeight: FontWeight.semibold },
+  retentionBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.Warning + '44', backgroundColor: Colors.Warning + '12',
+    borderRadius: Radius.lg, padding: Spacing.md,
+  },
   cardMetaDot: { color: Colors.TextMuted, fontSize: 10 },
   cardActions: { flexDirection: 'row', gap: 6 },
   actionBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },

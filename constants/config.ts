@@ -1,5 +1,10 @@
 export const APP_NAME = 'SpinShot 360';
 
+// How long a free user's rendered video stays in the cloud before the
+// expire-free-videos job removes it. Keep in sync with FREE_RETENTION_DAYS
+// (default) in supabase/functions/expire-free-videos/index.ts.
+export const FREE_VIDEO_RETENTION_DAYS = 30;
+
 export const RECORDING_DURATIONS = [
   { label: '10s', value: 10 },
   { label: '15s', value: 15 },

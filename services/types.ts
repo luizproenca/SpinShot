@@ -45,6 +45,9 @@ export interface Video {
   // hold expiry, that no refund landed — this (not cleanAvailableAt) is
   // what actually gates which URL is shown, see getDisplayVideoUrl.
   cleanConfirmedAt?: string;
+  // Set by the expire-free-videos retention job once a free user's video
+  // is removed from the cloud — videoUri/thumbnailUri are gone by then.
+  expiredAt?: string;
 }
 
 export interface VideoFrame {

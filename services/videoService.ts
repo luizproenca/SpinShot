@@ -45,6 +45,7 @@ function toVideo(row: any): Video {
     videoUrlWatermarked: row.video_url_watermarked || undefined,
     cleanAvailableAt: row.clean_available_at || undefined,
     cleanConfirmedAt: row.clean_confirmed_at || undefined,
+    expiredAt: row.expired_at || undefined,
   };
 }
 
