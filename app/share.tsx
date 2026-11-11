@@ -15,6 +15,9 @@ import { Colors, Spacing, Radius, FontSize, FontWeight } from '../constants/them
 import { PRESET_CONFIGS, isVideoPreset, DEFAULT_PRESET } from '../services/videoEffectsService';
 import { usePlan } from '../hooks/usePlan';
 import { useLanguage } from '../hooks/useLanguage';
+import { logFunnelEvent } from '../services/funnelAnalyticsService';
+import { useAuth } from '../hooks/useAuth';
+import { buildGuestUrl } from '../services/guestLinkService';
 
 const AUTO_RETURN_DELAY = 12;
 
@@ -34,6 +37,7 @@ export default function ShareScreen() {
   const { showAlert } = useAlert();
   const { isPro, showPaywall } = usePlan();
   const { t } = useLanguage();
+  const { user } = useAuth();
 
   const [dimensions, setDimensions] = useState(Dimensions.get('window'));
   useEffect(() => {
@@ -43,7 +47,7 @@ export default function ShareScreen() {
 
   const QR_SIZE = Math.min(dimensions.width - 80, 280);
 
-  const url = shareUrl || 'https://spinshot360.app/v/demo';
+  const url = buildGuestUrl(shareUrl) || 'https://luizproenca.github.io/SpinShot/v.html';
   const accent = eventColor || Colors.Primary;
   const isKiosk = kioskMode === '1';
 
@@ -100,14 +104,16 @@ export default function ShareScreen() {
 
   const handleCopy = useCallback(async () => {
     await haptic();
+    logFunnelEvent(user?.id, 'video_shared', 'copy');
     await Clipboard.setStringAsync(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
-  }, [url]);
+  }, [url, user?.id]);
 
   // Real WhatsApp share with deep link
   const handleWhatsApp = useCallback(async () => {
     await haptic();
+    logFunnelEvent(user?.id, 'video_shared', 'whatsapp');
     const message = encodeURIComponent(
       `🎥 Veja meu vídeo 360° do SpinShot!\n${url}`
     );
@@ -131,7 +137,7 @@ export default function ShareScreen() {
       await handleCopy();
       showAlert('Link copiado', 'Cole no WhatsApp para compartilhar.');
     }
-  }, [url, handleCopy]);
+  }, [url, handleCopy, user?.id]);
 
   // Native system share
   const handleNativeShare = useCallback(async () => {

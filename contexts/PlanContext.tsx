@@ -345,6 +345,7 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       setRcPackages([]);
     }
 
+    if (authUser?.id) logFunnelEvent(authUser.id, 'app_open');
     refreshSubscription();
     setupRCListener();
     loadRCPackages();

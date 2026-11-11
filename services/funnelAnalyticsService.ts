@@ -11,7 +11,11 @@ export type FunnelEventType =
   | 'paywall_viewed'
   | 'purchase_attempted'
   | 'purchase_completed'
-  | 'purchase_failed';
+  | 'purchase_failed'
+  | 'app_open'
+  | 'event_created'
+  | 'video_recorded'
+  | 'video_shared';
 
 export function logFunnelEvent(
   userId: string | undefined,

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SpinShot 360</title>
+  <style>
+    :root{--bg:#0b1020;--text:#eef2ff;--muted:#b9c2e0;--accent:#8b5cf6;--line:#263154}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:linear-gradient(180deg,#0b1020,#111936);color:var(--text);display:flex;justify-content:center}
+    .wrap{width:100%;max-width:480px;padding:20px 16px 40px;text-align:center}
+    video{width:100%;max-height:70vh;border-radius:18px;background:#000;border:1px solid var(--line)}
+    .btn{display:block;margin:12px 0 0;padding:14px;border-radius:14px;font-weight:700;text-decoration:none;color:#fff;background:var(--accent)}
+    .btn.alt{background:transparent;border:1px solid var(--line);color:var(--text)}
+    .promo{margin-top:28px;padding:20px 16px;border-radius:18px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.35)}
+    .promo h2{margin:0 0 6px;font-size:1.1rem}
+    .promo p{margin:0 0 4px;color:var(--muted);font-size:.92rem;line-height:1.5}
+    .stores{display:flex;gap:10px}.stores a{flex:1}
+    #err{display:none;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <video id="v" controls playsinline autoplay loop muted></video>
+    <p id="err">Video unavailable or expired. / Vídeo indisponível ou expirado.</p>
+    <a id="dl" class="btn" href="#" target="_blank" rel="noopener">Download video · Baixar vídeo</a>
+
+    <div class="promo">
+      <h2>🎥 Want a 360° platform at your event?<br>Quer uma plataforma 360 no seu evento?</h2>
+      <p>Record, add music &amp; frames, and share by QR code in seconds with SpinShot 360.</p>
+      <p>Grave, adicione música e molduras e compartilhe por QR code em segundos.</p>
+      <div class="stores">
+        <a class="btn" href="https://apps.apple.com/app/id6762010914" data-store="ios">App Store</a>
+        <a class="btn" href="https://play.google.com/store/apps/details?id=com.ironman.spinshot.app" data-store="android">Google Play</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var u = new URLSearchParams(location.search).get('u');
+      var ok = false;
+      try {
+        var x = new URL(u);
+        // Only our own media hosts — never an open player for arbitrary URLs.
+        ok = x.protocol === 'https:' &&
+          (x.hostname === 'res.cloudinary.com' || /\.supabase\.co$/.test(x.hostname));
+      } catch (e) {}
+      var v = document.getElementById('v'), dl = document.getElementById('dl');
+      if (!ok) { v.style.display = 'none'; dl.style.display = 'none'; document.getElementById('err').style.display = 'block'; return; }
+      v.src = u; dl.href = u;
+      v.addEventListener('error', function () { v.style.display = 'none'; dl.style.display = 'none'; document.getElementById('err').style.display = 'block'; });
+    })();
+  </script>
+</body>
+</html>

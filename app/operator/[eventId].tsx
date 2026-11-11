@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSupabaseClient } from '@/template';
 import QRCode from 'react-native-qrcode-svg';
 import { MaterialIcons } from '@expo/vector-icons';
+import { buildGuestUrl } from '../../services/guestLinkService';
 
 type RecordingStatus =
   | 'idle'
@@ -98,7 +99,7 @@ export default function OperatorScreen() {
           <Text style={[styles.title, { color }]}>SEU VÍDEO ESTÁ PRONTO</Text>
 
           <View style={styles.qrBox}>
-            <QRCode value={state.video_url} size={220} />
+            <QRCode value={buildGuestUrl(state.video_url)} size={220} />
           </View>
 
           <Text style={styles.subtitle}>Escaneie para baixar</Text>

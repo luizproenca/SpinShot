@@ -11,6 +11,7 @@ import { Colors, FontSize, FontWeight, Spacing, Radius } from '../constants/them
 import { useLanguage } from '../hooks/useLanguage';
 import { getSupabaseClient } from '@/template';
 import { getDisplayVideoUrl } from '../services/videoService';
+import { logFunnelEvent } from '../services/funnelAnalyticsService';
 
 const FINAL_VIDEO_WAIT_TIMEOUT_MS = 90000;
 const FINAL_VIDEO_POLL_INTERVAL_MS = 2500;
@@ -218,6 +219,7 @@ export default function ProcessingScreen() {
         }
 
         await waitForFinalVideoReady(finalVideoUrl, controller.signal);
+        supabase.auth.getSession().then(({ data }) => logFunnelEvent(data.session?.user.id, 'video_recorded'));
 
         if (cancelledRef.current) return;
 

@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useCallback, ReactNode, useContext } from 'react';
+import { logFunnelEvent } from '../services/funnelAnalyticsService';
 import { Event } from '../services/types';
 import { eventService } from '../services/eventService';
 import { AuthContext } from './AuthContext';
@@ -62,6 +63,7 @@ export function EventProvider({ children }: { children: ReactNode }) {
     if (!user) throw new Error('Usuário não autenticado');
     const newEvent = await eventService.createEvent(user.id, data);
     setEvents(prev => [newEvent, ...prev]);
+    logFunnelEvent(user.id, 'event_created');
     return newEvent;
   };
 

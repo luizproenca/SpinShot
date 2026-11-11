@@ -28,7 +28,7 @@ function isVideoEffect(value: unknown): value is VideoEffect {
 }
 
 function buildWatermarkTransformation(): string {
-  return 'l_text:Arial_30_bold:Powered%20by%20SpinShot%20360,co_white,o_55,g_center';
+  return 'l_text:Arial_26_bold:SpinShot%20360%20-%20get%20the%20app,co_white,o_55,g_center';
 }
 
 function buildAudioLayer(musicPublicId: string, audioDuration: number): string {
