@@ -450,7 +450,7 @@ const translations = {
     paywall: {
       // Hero
       hero_title: 'Desbloqueie o SpinShot Pro',
-      hero_sub: 'Sem marca d\'água, Full HD e recursos ilimitados para seus eventos',
+      hero_sub: 'Um único evento já paga o app. Sem marca d\'água, Full HD e recursos ilimitados.',
 
       // Trial banner
       trial_banner: 'Teste grátis por 30 dias no plano Anual. Cancele quando quiser.',
@@ -508,6 +508,7 @@ const translations = {
       // Event pass (one-off unlock)
       event_pass_title: 'Desbloquear só este evento',
       event_pass_sub: 'Sem marca d\'água e em HD, só para o evento atual — sem assinatura.',
+      event_pass_hint: 'Só vai usar em um evento? Crie o evento e desbloqueie apenas ele por {{price}}, sem assinatura.',
       event_pass_charged_not_applied: 'O pagamento foi feito, mas não conseguimos aplicar o desbloqueio agora. Tente novamente sem se preocupar — você não será cobrado de novo.',
       event_pass_retry: 'Tentar aplicar de novo',
 
@@ -954,7 +955,7 @@ const translations = {
     },
     paywall: {
       hero_title: 'Unlock SpinShot Pro',
-      hero_sub: 'No watermark, Full HD and unlimited features for your events',
+      hero_sub: 'One event pays for the app. No watermark, Full HD and unlimited features.',
       trial_banner: 'Free 30-day trial on Annual plan. Cancel anytime.',
       monthly_label: 'Pro Monthly',
       annual_label: 'Pro Annual',
@@ -997,6 +998,7 @@ const translations = {
 
       event_pass_title: 'Unlock just this event',
       event_pass_sub: 'No watermark and HD, for the current event only — no subscription.',
+      event_pass_hint: 'Only need it for one event? Create the event and unlock just that one for {{price}}, no subscription.',
       event_pass_charged_not_applied: 'Payment went through, but we couldn\'t apply the unlock yet. Try again — you won\'t be charged twice.',
       event_pass_retry: 'Try applying again',
 
@@ -1440,7 +1442,7 @@ const translations = {
     },
     paywall: {
       hero_title: 'Desbloquea SpinShot Pro',
-      hero_sub: 'Sin marca de agua, Full HD y funciones ilimitadas para tus eventos',
+      hero_sub: 'Un solo evento ya paga la app. Sin marca de agua, Full HD y funciones ilimitadas.',
       trial_banner: 'Prueba gratuita de 30 días en el plan Anual. Cancela cuando quieras.',
       monthly_label: 'Pro Mensual',
       annual_label: 'Pro Anual',
@@ -1483,6 +1485,7 @@ const translations = {
 
       event_pass_title: 'Desbloquear solo este evento',
       event_pass_sub: 'Sin marca de agua y en HD, solo para el evento actual — sin suscripción.',
+      event_pass_hint: '¿Solo lo usarás en un evento? Crea el evento y desbloquea solo ese por {{price}}, sin suscripción.',
       event_pass_charged_not_applied: 'El pago se realizó, pero no pudimos aplicar el desbloqueo todavía. Intenta de nuevo — no se te cobrará otra vez.',
       event_pass_retry: 'Intentar aplicar de nuevo',
 

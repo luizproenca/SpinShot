@@ -258,7 +258,7 @@ export default function PaywallModal() {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
 
-  const [selectedProduct, setSelectedProduct] = useState<IAPProductId>('spinshot_pro_annual');
+  const [selectedProduct, setSelectedProduct] = useState<IAPProductId>('spinshot_pro_monthly');
   const [purchasing, setPurchasing] = useState(false);
   const [purchasingEventPass, setPurchasingEventPass] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -311,10 +311,12 @@ export default function PaywallModal() {
     if (isPaywallVisible) {
       setMounted(true);
 
-      if (annualPrice) {
-        setSelectedProduct('spinshot_pro_annual');
-      } else if (monthlyPrice) {
+      // Monthly is the lighter commitment — pre-selecting the R$ 599 annual
+      // plan scared off users who hadn't yet seen the app pay for itself.
+      if (monthlyPrice) {
         setSelectedProduct('spinshot_pro_monthly');
+      } else if (annualPrice) {
+        setSelectedProduct('spinshot_pro_annual');
       }
 
       setResultMsg(null);
@@ -615,6 +617,12 @@ export default function PaywallModal() {
             </View>
           )}
 
+          {!showEventPassOffer && !!eventPassPrice && hasAnyPlan && (
+            <Text style={styles.eventPassHint}>
+              {(t.paywall as any).event_pass_hint.replace('{{price}}', eventPassPrice)}
+            </Text>
+          )}
+
           <View style={styles.featuresBox}>
             <Text style={styles.featuresTitle}>{t.paywall.included_title}</Text>
             {PRO_FEATURES.map((f, i) => (
@@ -855,6 +863,14 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
 
+  eventPassHint: {
+    color: Colors.TextSubtle,
+    fontSize: FontSize.xs,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: Spacing.md,
+    paddingHorizontal: Spacing.md,
+  },
   eventPassBox: {
     flexDirection: 'row',
     alignItems: 'center',
