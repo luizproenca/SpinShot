@@ -9,11 +9,12 @@
     *{box-sizing:border-box}
     body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:linear-gradient(180deg,#0b1020,#111936);color:var(--text);display:flex;justify-content:center}
     .wrap{width:100%;max-width:480px;padding:20px 16px 40px;text-align:center}
-    video{width:100%;max-height:70vh;border-radius:18px;background:#000;border:1px solid var(--line)}
+    .player{position:relative}
+    video{display:block;width:100%;max-height:70vh;border-radius:18px;background:#000;border:1px solid var(--line)}
+    #sound{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:none;padding:8px 14px;border:0;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font-weight:700;font-size:.85rem;cursor:pointer;white-space:nowrap}
     .btn{display:block;margin:12px 0 0;padding:14px;border-radius:14px;font-weight:700;text-decoration:none;color:#fff;background:var(--accent)}
-    .btn.alt{background:transparent;border:1px solid var(--line);color:var(--text)}
     .promo{margin-top:28px;padding:20px 16px;border-radius:18px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.35)}
-    .promo h2{margin:0 0 6px;font-size:1.1rem}
+    .promo h2{margin:0 0 8px;font-size:1.1rem;line-height:1.3}
     .promo p{margin:0 0 4px;color:var(--muted);font-size:.92rem;line-height:1.5}
     .stores{display:flex;gap:10px}.stores a{flex:1}
     #err{display:none;color:var(--muted)}
@@ -21,22 +22,47 @@
 </head>
 <body>
   <div class="wrap">
-    <video id="v" controls playsinline autoplay loop muted></video>
-    <p id="err">Video unavailable or expired. / Vídeo indisponível ou expirado.</p>
-    <a id="dl" class="btn" href="#" target="_blank" rel="noopener">Download video · Baixar vídeo</a>
+    <div class="player">
+      <video id="v" controls playsinline autoplay loop muted></video>
+      <button id="sound" type="button"></button>
+    </div>
+    <p id="err"></p>
+    <a id="dl" class="btn" href="#" target="_blank" rel="noopener"></a>
 
     <div class="promo">
-      <h2>🎥 Want a 360° platform at your event?<br>Quer uma plataforma 360 no seu evento?</h2>
-      <p>Record, add music &amp; frames, and share by QR code in seconds with SpinShot 360.</p>
-      <p>Grave, adicione música e molduras e compartilhe por QR code em segundos.</p>
+      <h2 id="h"></h2>
+      <p id="p"></p>
       <div class="stores">
-        <a class="btn" href="https://apps.apple.com/app/id6762010914" data-store="ios">App Store</a>
-        <a class="btn" href="https://play.google.com/store/apps/details?id=com.ironman.spinshot.app" data-store="android">Google Play</a>
+        <a class="btn" href="https://apps.apple.com/app/id6762010914">App Store</a>
+        <a class="btn" href="https://play.google.com/store/apps/details?id=com.ironman.spinshot.app">Google Play</a>
       </div>
     </div>
   </div>
   <script>
     (function () {
+      var T = {
+        pt: { dl: 'Baixar vídeo', sound: '🔊 Toque para ligar o som', err: 'Vídeo indisponível ou expirado.',
+              h: '🎥 Quer uma plataforma 360 no seu evento?',
+              p: 'Grave, adicione música e molduras e compartilhe por QR code em segundos com o SpinShot 360.' },
+        es: { dl: 'Descargar video', sound: '🔊 Toca para activar el sonido', err: 'Video no disponible o expirado.',
+              h: '🎥 ¿Quieres una plataforma 360 en tu evento?',
+              p: 'Graba, agrega música y marcos, y comparte por código QR en segundos con SpinShot 360.' },
+        en: { dl: 'Download video', sound: '🔊 Tap to unmute', err: 'Video unavailable or expired.',
+              h: '🎥 Want a 360° platform at your event?',
+              p: 'Record, add music & frames, and share by QR code in seconds with SpinShot 360.' }
+      };
+      var lang = ((navigator.language || 'en').slice(0, 2)).toLowerCase();
+      var t = T[lang] || T.en;
+      document.documentElement.lang = T[lang] ? lang : 'en';
+
+      var v = document.getElementById('v'), dl = document.getElementById('dl'),
+          err = document.getElementById('err'), snd = document.getElementById('sound');
+      dl.textContent = t.dl; snd.textContent = t.sound; err.textContent = t.err;
+      document.getElementById('h').textContent = t.h;
+      document.getElementById('p').textContent = t.p;
+
+      function fail() { v.parentNode.style.display = 'none'; dl.style.display = 'none'; err.style.display = 'block'; }
+
       var u = new URLSearchParams(location.search).get('u');
       var ok = false;
       try {
@@ -45,10 +71,15 @@
         ok = x.protocol === 'https:' &&
           (x.hostname === 'res.cloudinary.com' || /\.supabase\.co$/.test(x.hostname));
       } catch (e) {}
-      var v = document.getElementById('v'), dl = document.getElementById('dl');
-      if (!ok) { v.style.display = 'none'; dl.style.display = 'none'; document.getElementById('err').style.display = 'block'; return; }
+      if (!ok) { fail(); return; }
+
       v.src = u; dl.href = u;
-      v.addEventListener('error', function () { v.style.display = 'none'; dl.style.display = 'none'; document.getElementById('err').style.display = 'block'; });
+      v.addEventListener('error', fail);
+
+      // Browsers only autoplay muted, so offer a one-tap unmute.
+      snd.style.display = 'block';
+      snd.addEventListener('click', function () { v.muted = false; v.play(); snd.style.display = 'none'; });
+      v.addEventListener('volumechange', function () { if (!v.muted) snd.style.display = 'none'; });
     })();
   </script>
 </body>
